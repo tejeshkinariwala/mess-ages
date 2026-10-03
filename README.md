@@ -7,7 +7,7 @@ A Claude Code plugin that puts a dim label under each of the last 20 messages:
 ```
 
 - **Age:** how long ago the message appeared (`just now`, `5s ago`, `2m ago`, `30m+ ago`). Updates every 5 seconds.
-- **Summary:** up to 8 plain words saying what the message is about, written by Sonnet at low effort. A message is summarised once, after its text stops changing, so the label does not flicker while a reply streams.
+- **Summary:** up to 8 plain words saying what the message is about, written by Sonnet at low effort. Each message is summarised once, after Claude finishes the turn, so the label does not change after it appears.
 
 The label sits on its own line below the message, so tables and other wide output keep the full terminal width.
 
