@@ -48,4 +48,8 @@ test('prompts at once, reply blocks at the next tool call or turn end, once each
   await draw('AssistantMessage', 'a1', 'first block')
   await clock.advance(20_000)
   expect(asked.length).toBe(3) // redraws do not ask again
+
+  await draw('AssistantMessage', 'old', 'from an earlier turn') // no turn running: a resumed session
+  await clock.advance(10_000)
+  expect(asked[3]).toBe('from an earlier turn')
 })

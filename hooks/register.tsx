@@ -14,10 +14,12 @@ const SYSTEM =
 // Texts waiting for a summary, by message id; filled while drawing, drained by
 // the tick. A text is summarized only once it is final: a prompt at once, a
 // reply's text block when the next tool call starts or the turn ends (it never
-// changes after that). Each message is asked about once: its summary is stored
+// changes after that), and any reply drawn while no turn runs (a resumed
+// session, or a reload after the turn ended). Each message is asked about once: its summary is stored
 // by id, never by text, so a redraw can't trigger a second call.
 const pending = new Map<string, { text: string; isFinal: boolean }>()
 const asked = new Set<string>()
+let isTurnRunning = false
 let isBusy = false
 
 // Every reply text drawn so far is final: the model has moved on.
@@ -68,11 +70,16 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('turn.start', ($, e, next) => {
+    isTurnRunning = true
+    return next(e)
+  })
   on('tool.call', ($, e, next) => {
     finalizeReplies() // the text before a tool call is done
     return next(e)
   })
   on('turn.complete', ($, e, next) => {
+    isTurnRunning = false
     finalizeReplies() // ended for any reason: done, interrupted, failed
     return next(e)
   })
@@ -90,8 +97,9 @@ export const register: Register = on => {
 
     const summary = (await read($, summaries))[id]
     if (summary === undefined && !asked.has(id) && e.props.text.trim()) {
-      // A prompt is final as sent; a reply block waits (latest text wins).
-      const isFinal = e.component === 'UserMessage' || (pending.get(id)?.isFinal ?? false)
+      // A prompt is final as sent, a reply drawn between turns too; a reply
+      // block of the running turn waits (latest text wins).
+      const isFinal = e.component === 'UserMessage' || !isTurnRunning || (pending.get(id)?.isFinal ?? false)
       pending.set(id, { text: e.props.text, isFinal })
     }
 
