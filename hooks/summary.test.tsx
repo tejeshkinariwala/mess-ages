@@ -2,36 +2,50 @@ import { test, expect, mock } from 'claude-code/testing'
 
 const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 
-test('one summary per message, after the turn ends', async ($, on) => {
+test('prompts at once, reply blocks at the next tool call or turn end, once each', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
-  let calls = 0
-  on('model.complete', () => { calls++; return { value: { isAnswered: true, text: 'Fix The Login Bug', usage } } as any })
+  const asked: string[] = []
+  on('model.complete', (_$, e: any) => { asked.push(e.prompt); return { value: { isAnswered: true, text: `About ${e.prompt}`, usage } } as any })
   on('session.start', () => ({ cwd: '/tmp' }) as any)
-  on('ui.log', () => ({}) as any)
+  on('ui.log', () => ({ value: undefined }) as any)
   on('turn.start', (_$, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', () => ({ text: 'done' }) as any)
-  on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e as any) as any; return h(Text, {}, 'hello') })
-  const mount = () => $.ui.mount({
-    plugin: 'mess-ages', surface: 'terminal', component: 'UserMessage', requestId: 'm1',
-    props: { text: 'please fix the login bug', origin: { kind: 'prompt' }, isExpanded: true },
-  } as any)
+  on('tool.call', () => ({ result: { text: 'ok' } }) as any)
+  on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e as any) as any; return h(Text, {}, 'x') })
+  const draw = async (component: 'UserMessage' | 'AssistantMessage', requestId: string, text: string) => {
+    const props = component === 'UserMessage'
+      ? { text, origin: { kind: 'prompt' }, isExpanded: true }
+      : { text, isFirstOfReply: true }
+    const ui = await $.ui.mount({ plugin: 'mess-ages', surface: 'terminal', component, requestId, props } as any)
+    const label = await ui.find({ type: 'Text', text: /ago/ })
+    await ui.unmount()
+    return JSON.stringify(label)
+  }
 
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true } as any)
-  await $.turn.start({ text: 'please fix the login bug', turnId: 't1' } as any)
-  let ui = await mount()
+  await $.turn.start({ text: 'prompt', turnId: 't1' } as any)
+
+  await draw('UserMessage', 'u1', 'prompt')
+  await draw('AssistantMessage', 'a1', 'first')
+  await draw('AssistantMessage', 'a1', 'first block') // still streaming
   await clock.advance(10_000)
-  expect(calls).toBe(0) // nothing while the turn runs
-  await ui.unmount()
+  expect(asked).toEqual(['prompt']) // the prompt at once, mid-turn
+
+  await $.tool.call({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu1' } as any)
+  await clock.advance(10_000)
+  expect(asked).toEqual(['prompt', 'first block']) // final text, after the tool call started
+  expect(await draw('AssistantMessage', 'a1', 'first block')).toContain('about first block')
+
+  await draw('AssistantMessage', 'a2', 'last block')
+  await clock.advance(10_000)
+  expect(asked.length).toBe(2) // the last block waits for the turn to end
 
   await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'done', durationMs: 1000, isAborted: false, category: null, explanation: null } as any)
   await clock.advance(10_000)
-  expect(calls).toBe(1)
-  ui = await mount()
-  expect(await ui.find({ type: 'Text', text: /fix the login bug/ })).toBeDefined()
-  await ui.unmount()
+  expect(asked).toEqual(['prompt', 'first block', 'last block'])
 
+  await draw('UserMessage', 'u1', 'prompt')
+  await draw('AssistantMessage', 'a1', 'first block')
   await clock.advance(20_000)
-  ui = await mount()
-  expect(calls).toBe(1) // a redraw does not ask again
-  await ui.unmount()
+  expect(asked.length).toBe(3) // redraws do not ask again
 })
