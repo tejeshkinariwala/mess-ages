@@ -11,6 +11,8 @@ const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Label
 
 // The side panel listing every message's age and summary, opened by /ages.
 const PANE = 'ages'
+// While this hidden file exists, the panel opens at the start of each session.
+const AUTO_FLAG = '.claude/.mess-ages-always'
 // The panel's age column: wide enough for the longest short age, `30m+`, plus a space.
 const AGE_WIDTH = 5
 
@@ -93,6 +95,44 @@ async function summarizeQueue($: EngineInterface) {
   }
 }
 
+// The flag file's full path, or undefined with no HOME.
+async function flagPath($: EngineInterface) {
+  const home = await $.env.get('HOME')
+  return home ? `${home}/${AUTO_FLAG}` : undefined
+}
+
+// Missing, unreadable or no HOME: off.
+async function isAutoOn($: EngineInterface) {
+  const path = await flagPath($).catch(() => undefined)
+  return path ? $.fs.exists(path).catch(() => false) : false
+}
+
+// Opens the panel, back-generating summaries first. Focused only when the
+// person asked for it: an automatic open leaves the keys with the prompt.
+async function openPanel($: EngineInterface, focus: boolean) {
+  await backfill($)
+  // Focused so the arrows scroll it; Escape hands the keys back and closes it.
+  const opened = await $.ui.open({ id: PANE, title: 'Ages', closeOnEscape: true, ...(focus ? { focus: true } : {}) })
+  if (opened.isPlaced) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // newest in view
+}
+
+// `/ages auto on|off` creates or removes the flag file; `/ages auto` reports it.
+async function autoCommand($: EngineInterface, arg: string) {
+  const path = await flagPath($)
+  if (!path) return 'Auto-open unavailable: HOME is not set.'
+  if (arg === 'on') {
+    await $.fs.write(path, '')
+    return `Auto-open on: the Ages panel opens at the start of each session (${path}).`
+  }
+  if (arg === 'off') {
+    await $.process.run(['rm', '-f', path])
+    return 'Auto-open off.'
+  }
+  return (await isAutoOn($))
+    ? `Auto-open is on (${path} exists). /ages auto off turns it off.`
+    : 'Auto-open is off. /ages auto on turns it on.'
+}
+
 export const register: Register = on => {
   // A fresh load starts with nothing seen and nothing live.
   resetSeen()
@@ -105,7 +145,7 @@ export const register: Register = on => {
     // A failed registration costs the panel alone, never the labels.
     await $.command.register({
       name: 'ages',
-      description: 'Toggle a side panel listing every message\'s age and summary',
+      description: 'Toggle a side panel listing every message\'s age and summary; /ages auto on|off opens it each session',
     }).catch(err => $.ui.log(`mess-ages: /ages not registered: ${err}`, { to: 'debug' }))
     // The one timer for every label, however many: every 5s it moves `now`, so
     // renders that read it redraw when a label can change, and it drains the
@@ -115,7 +155,11 @@ export const register: Register = on => {
       await update($, now, () => t)
       void summarizeQueue($)
     })
-    return next(e)
+    const started = await next(e)
+    if (await isAutoOn($)) {
+      await openPanel($, false).catch(err => $.ui.log(`mess-ages: auto-open failed: ${err}`, { to: 'debug' }))
+    }
+    return started
   })
 
   on('prompt.submit', ($, e, next) => {
@@ -181,15 +225,14 @@ export const register: Register = on => {
   })
 
   // `/ages` toggles the panel: open it, or minimize it back to the chat.
-  on('command.run', { command: 'ages' }, async $ => {
+  on('command.run', { command: 'ages' }, async ($, e) => {
+    const [sub, arg = ''] = (e.args ?? '').trim().split(/\s+/)
+    if (sub === 'auto') return { text: await autoCommand($, arg) }
     if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
       await $.ui.close({ id: PANE })
       return { text: 'Ages panel minimized.' }
     }
-    await backfill($)
-    // Focused so the arrows scroll it; Escape hands the keys back and closes it.
-    const opened = await $.ui.open({ id: PANE, title: 'Ages', focus: true, closeOnEscape: true })
-    if (opened.isPlaced) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // newest in view
+    await openPanel($, true)
     return { text: 'Ages panel opened. Esc, m, or /ages again minimizes it.' }
   })
 

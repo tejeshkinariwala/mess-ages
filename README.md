@@ -25,9 +25,66 @@ Thinking blocks get no label: Claude Code shows them like replies, but plugins c
 
 The label sits on its own line below the message, so tables and other wide output keep the full terminal width.
 
+## What it looks like
+
+A made-up session with `/ages` open. In a wide terminal the panel sits beside the chat. Each message keeps its dim inline label (right-aligned under it); the panel lists the same messages, oldest first, with a short age in a fixed 5-character column and the summary after it:
+
+```
+ > what does the old inputs class save?                 │ Ages
+       5m ago · checking what the old inputs class saves│ 3 earlier messages (no summary)
+                                                        │ 5m   checking what the old inputs
+ ● It saves the form fields and the last tab opened.    │      class saves
+                   5m ago · reading the old inputs class│ 5m   reading the old inputs class
+                                                        │ 2m   moving the save code to the new
+ > move that into the new class                         │      class
+          2m ago · moving the save code to the new class│ 2m   changing the save code in the
+                                                        │      new class
+ ● Done. I moved save() and load() into Inputs.         │ 30s  running the save tests
+        2m ago · changing the save code in the new class│ now  saying the tests pass
+                                                        │
+ ● Running the tests.                                   │ [ Minimize ]
+                        30s ago · running the save tests│
+                                                        │
+ ● All 12 tests pass.                                   │
+                        just now · saying the tests pass│
+────────────────────────────────────────────────────────┴──────────────────────────────────
+ >
+```
+
+In a narrow terminal the panel sits above the prompt instead:
+
+```
+ ● All 12 tests pass.
+                       just now · saying the tests pass
+
+ Ages
+ 3 earlier messages (no summary)
+ 5m   checking what the old inputs class saves
+ 5m   reading the old inputs class
+ 2m   moving the save code to the new class
+ 2m   changing the save code in the new class
+ 30s  running the save tests
+ now  saying the tests pass
+ [ Minimize ]
+──────────────────────────────────────────────────
+ >
+```
+
+The colours (see above) are not shown here.
+
 ## The `/ages` panel
 
 Type `/ages` to open a side panel that lists the session's messages, oldest first, each row a short age with no "ago" (`now`, `30s`, `5m`, `30m+`) in a fixed column, then the summary with no separator, such as `5m   checking what the old inputs class saves`. Messages with no summary (old ones past the limit below, or ones still waiting) are not listed one by one: a single dim line such as `8 earlier messages (no summary)` counts them. Long summaries wrap in their own column, indented under the summary text. The arrow keys scroll it. To minimize it, press `Esc`, press `m` (the Minimize button), or type `/ages` again.
+
+### Open it automatically
+
+To open the panel at the start of every Claude Code session, type `/ages auto on`. This creates an empty hidden file, `~/.claude/.mess-ages-always`; while it exists, the panel opens on its own when a session starts. An automatic open does not take the keyboard from the prompt, and the panel shows only when the terminal is at least 144 columns wide (it waits below that).
+
+- `/ages auto on`: create the file, so the panel opens each session.
+- `/ages auto off`: delete the file.
+- `/ages auto`: say whether it is on.
+
+You can also turn it off by deleting the file yourself: `rm ~/.claude/.mess-ages-always`. If the file is missing or cannot be read, auto-open is off. Plain `/ages` works as before.
 
 ## Limits
 
