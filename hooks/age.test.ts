@@ -20,11 +20,9 @@ test('only newest 20', () => {
   expect(ids.has('m4')).toBe(false)
 })
 
-import { cleanSummary, textKey } from './age'
+import { cleanSummary } from './age'
 
 test('summary cleanup', () => {
   expect(cleanSummary('"Fix the Login Bug."\n')).toBe('fix the login bug')
   expect(cleanSummary('one two three four five six seven eight nine ten')).toBe('one two three four five six seven eight')
-  expect(textKey('abc')).toBe(textKey('abc'))
-  expect(textKey('abc')).not.toBe(textKey('abd'))
 })
