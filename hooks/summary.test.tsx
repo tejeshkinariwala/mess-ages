@@ -5,7 +5,11 @@ const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 
 test('prompts at once, reply blocks at the next tool call or turn end, once each', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   const asked: string[] = []
-  on('model.complete', (_$, e: any) => { asked.push(e.prompt); return { value: { isAnswered: true, text: `About ${e.prompt}`, usage } } as any })
+  on('model.complete', (_$, e: any) => {
+    asked.push(e.prompt)
+    const kind = e.system.includes('kind:') ? 'run: ' : '' // replies say their kind
+    return { value: { isAnswered: true, text: `${kind}About ${e.prompt}`, usage } } as any
+  })
   on('session.start', () => ({ cwd: '/tmp' }) as any)
   on('ui.log', () => ({ value: undefined }) as any)
   on('turn.start', (_$, e: any) => ({ turnId: e.turnId }) as any)
@@ -17,9 +21,9 @@ test('prompts at once, reply blocks at the next tool call or turn end, once each
       ? { text, origin: { kind: 'prompt' }, isExpanded: true }
       : { text, isFirstOfReply: true }
     const ui = await $.ui.mount({ plugin: 'mess-ages', surface: 'terminal', component, requestId, props } as any)
-    const label = await ui.find({ type: 'Text', text: /ago/ })
+    const label = await ui.find({ type: 'Text', text: / · / })
     await ui.unmount()
-    return JSON.stringify(label)
+    return JSON.stringify(label ?? null)
   }
 
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true } as any)
@@ -34,7 +38,12 @@ test('prompts at once, reply blocks at the next tool call or turn end, once each
   await $.tool.call({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu1' } as any)
   await clock.advance(10_000)
   expect(asked).toEqual(['prompt', 'first block']) // final text, after the tool call started
-  expect(await draw('AssistantMessage', 'a1', 'first block')).toContain('about first block')
+  const reply = await draw('AssistantMessage', 'a1', 'first block')
+  expect(reply).toContain('about first block')
+  expect(reply).toContain('warning') // a run is coloured amber
+  const prompt = await draw('UserMessage', 'u1', 'prompt')
+  expect(prompt).toContain('about prompt')
+  expect(prompt).toContain('suggestion') // your input is coloured blue
 
   await draw('AssistantMessage', 'a2', 'last block')
   await clock.advance(10_000)
