@@ -1,13 +1,20 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Kind, Labels } from '../types'
+import type { Folds, Kind, Labels } from '../types'
 import { ageLabel, cleanSummary } from './age'
+import {
+  EMPTY, GROUP_SYSTEM, applyPass, failPass, fits, isCollapsed, moveCursor, parseGroups, passPrompt, planPass,
+  sections, shouldPass,
+} from './groups'
 import { KIND_COLOR, parseLabel } from './kind'
 import { markSeen, pickBackfill, resetSeen, rows, seen } from './store'
+import type { Row } from './store'
 
 const now = atom({ plugin: 'mess-ages', key: 'now' } as const, 0)
 const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Labels)
+const groups = atom({ plugin: 'mess-ages', key: 'groups' } as const, EMPTY)
+const folds = atom({ plugin: 'mess-ages', key: 'folds' } as const, {} as Folds)
 
 // The side panel listing every message's age and summary, opened by /ages.
 const PANE = 'ages'
@@ -46,6 +53,9 @@ let isLive = false
 const oldIds = new Set<string>()
 const old = new Map<string, { text: string; isPrompt: boolean }>() // their texts
 const backfilled = new Set<string>()
+// One grouping pass at a time; the header holding the panel's focus ring.
+let isGrouping = false
+let cursor: string | undefined
 
 // `other` keeps the plain dim colour: no color prop at all.
 function colorOf(kind: Kind) {
@@ -95,6 +105,49 @@ async function summarizeQueue($: EngineInterface) {
   }
 }
 
+// The ids of the panel's rows with a summary, oldest first.
+async function shownIds($: EngineInterface) {
+  return rows(await read($, labels), 0).filter(row => row.label).map(row => row.id)
+}
+
+async function isPanelOpen($: EngineInterface) {
+  return (await $.ui.panes()).some(pane => pane.id === PANE)
+}
+
+// Groups the panel's rows: when it opens (`isOpening`), and after PASS_EVERY
+// new summarized rows while it is open. One Haiku call sends the open group
+// and the rows after it, never the closed ones; any failure leaves the panel
+// flat until a later pass succeeds.
+async function groupPass($: EngineInterface, isOpening: boolean) {
+  if (isGrouping) return
+  isGrouping = true
+  try {
+    const shown = await shownIds($)
+    let grouping = await read($, groups)
+    if (!fits(grouping, shown)) grouping = EMPTY // rows redrawn in another order: start over
+    if (!shouldPass(grouping, shown.length, isOpening)) return
+    const plan = planPass(grouping, shown)
+    const all = await read($, labels)
+    const t = await read($, now)
+    const byId = new Map(rows(all, t).map(row => [row.id, row]))
+    const r = await $.model.complete({
+      model: 'haiku', effort: 'low', system: GROUP_SYSTEM, maxTokens: 600,
+      prompt: passPrompt(plan.work.map(id => ({ age: byId.get(id)!.age, words: all[id]!.words }))),
+    }).catch(() => undefined)
+    const ranges = r?.isAnswered ? parseGroups(r.text, plan.work.length) : undefined
+    if (!ranges) $.ui.log('mess-ages: grouping failed; the panel stays flat', { to: 'debug' })
+    await update($, groups, () => ranges ? applyPass(grouping, plan, ranges, shown.length) : failPass(grouping, shown.length))
+  } finally {
+    isGrouping = false
+  }
+}
+
+// The group header an arrow moves the cursor to, or undefined to scroll.
+async function headerTo($: EngineInterface, by: number) {
+  const parts = sections(await read($, groups), await shownIds($))
+  return parts && moveCursor(parts.map(p => `group:${p.key}`), cursor, by)
+}
+
 // The flag file's full path, or undefined with no HOME.
 async function flagPath($: EngineInterface) {
   const home = await $.env.get('HOME')
@@ -111,9 +164,10 @@ async function isAutoOn($: EngineInterface) {
 // person asked for it: an automatic open leaves the keys with the prompt.
 async function openPanel($: EngineInterface, focus: boolean) {
   await backfill($)
-  // Focused so the arrows scroll it; Escape hands the keys back and closes it.
+  // Focused so the arrows move between groups and scroll; Escape hands the keys back and closes it.
   const opened = await $.ui.open({ id: PANE, title: 'Ages', closeOnEscape: true, ...(focus ? { focus: true } : {}) })
   if (opened.isPlaced) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // newest in view
+  void groupPass($, true).catch(err => $.ui.log(`mess-ages: grouping failed: ${err}`, { to: 'debug' }))
 }
 
 // `/ages auto on|off` creates or removes the flag file; `/ages auto` reports it.
@@ -139,6 +193,8 @@ export const register: Register = on => {
   for (const c of [pending, asked, oldIds, old, backfilled]) c.clear()
   isLive = false
   isTurnRunning = false
+  isGrouping = false
+  cursor = undefined
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
@@ -154,6 +210,7 @@ export const register: Register = on => {
       const t = await $.clock.now()
       await update($, now, () => t)
       void summarizeQueue($)
+      if (await isPanelOpen($).catch(() => false)) void groupPass($, false).catch(() => {})
     })
     const started = await next(e)
     if (await isAutoOn($)) {
@@ -228,7 +285,7 @@ export const register: Register = on => {
   on('command.run', { command: 'ages' }, async ($, e) => {
     const [sub, arg = ''] = (e.args ?? '').trim().split(/\s+/)
     if (sub === 'auto') return { text: await autoCommand($, arg) }
-    if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
+    if (await isPanelOpen($)) {
       await $.ui.close({ id: PANE })
       return { text: 'Ages panel minimized.' }
     }
@@ -240,12 +297,31 @@ export const register: Register = on => {
   // summary with no ` · ` separator (the inline labels keep it). Rows with no summary (old ones past BACKFILL_LIMIT, or still
   // waiting) are hidden and counted in one dim line: a resumed session draws its
   // history at once, so they would all show the same age and nothing else.
+  // Once a pass has grouped them, the rows sit under foldable group headers;
+  // with no grouping, or a failed one, the flat list.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const all = await read($, labels)
     const list = rows(all, await read($, now))
     const shown = list.filter(row => row.label)
     const hidden = list.length - shown.length
+    const parts = sections(await read($, groups), shown.map(row => row.id))
+    const folded = await read($, folds)
+    const byId = new Map(shown.map(row => [row.id, row]))
+
+    const drawRow = (row: Row) => (
+      <Box>
+        {/* Fixed width, never shrunk: a long summary wraps in its own column. */}
+        <Box width={AGE_WIDTH} flexShrink={0}>
+          <Text dimColor>{row.age}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{row.label!.words}</Text>
+        </Box>
+      </Box>
+    )
+    // Fold choices are written from the press, never while drawing.
+    const setFolds = (fn: (m: Folds) => Folds) => update($, folds, fn)
 
     return (
       <Box flexDirection="column">
@@ -253,21 +329,53 @@ export const register: Register = on => {
         {hidden > 0 && (
           <Text dimColor>{`${hidden} earlier message${hidden === 1 ? '' : 's'} (no summary)`}</Text>
         )}
-        {shown.map(row => (
-          <Box>
-            {/* Fixed width, never shrunk: a long summary wraps in its own column. */}
-            <Box width={AGE_WIDTH} flexShrink={0}>
-              <Text dimColor>{row.age}</Text>
-            </Box>
-            <Box flexGrow={1} flexShrink={1}>
-              <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{row.label!.words}</Text>
-            </Box>
-          </Box>
-        ))}
+        {parts
+          ? parts.map(part => {
+            const isFolded = isCollapsed(part, folded)
+            return (
+              <Box flexDirection="column">
+                {/* The header: Enter on it (the focus ring is the cursor) folds or unfolds it. */}
+                <Button
+                  key={`group:${part.key}`} plain
+                  label={`${isFolded ? '▸' : '▾'} ${part.title} (${part.ids.length})`}
+                  onPress={() => setFolds(m => ({ ...m, [part.key]: !isCollapsed(part, m) }))}
+                />
+                {!isFolded && part.ids.map(id => drawRow(byId.get(id)!))}
+              </Box>
+            )
+          })
+          : shown.map(drawRow)}
         <Box>
           <Button key="minimize" label="Minimize" hotkey="m" onPress={() => $.ui.close({ id: PANE })} />
+          {parts && (
+            <Button key="collapse" label="Collapse all" hotkey="c"
+              onPress={() => setFolds(m => ({ ...m, ...Object.fromEntries(parts.map(p => [p.key, true])) }))} />
+          )}
+          {parts && (
+            <Button key="expand" label="Expand all" hotkey="e"
+              onPress={() => setFolds(m => ({ ...m, ...Object.fromEntries(parts.map(p => [p.key, false])) }))} />
+          )}
         </Box>
       </Box>
     )
+  })
+
+  // The focus ring on a group header is the panel's cursor: remember which.
+  on('ui.focus', { component: 'Pane', requestId: PANE }, ($, e, next) => {
+    cursor = e.element?.startsWith('group:') ? e.element : undefined
+    return next(e)
+  })
+
+  // Up and Down move the cursor between group headers. Past the first or last
+  // header, with no groups, and for the wheel and page keys, the panel scrolls
+  // as before.
+  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'person' || e.pointer || Math.abs(e.by) !== 1) return next(e)
+    const to = await headerTo($, e.by).catch(() => undefined)
+    if (!to) return next(e)
+    const moved = await $.ui.focus({ requestId: PANE, key: to }).catch(() => ({ deny: 'failed' }))
+    if (moved.deny) return next(e)
+    void $.ui.scroll({ in: PANE, to: { key: to } }).catch(() => {}) // the header in view
+    return {}
   })
 }

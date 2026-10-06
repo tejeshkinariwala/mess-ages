@@ -7,6 +7,8 @@ function setup($: any, on: any) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const asked: string[] = []
   on('model.complete', (_$: any, e: any) => {
+    // Grouping passes get no JSON: the panel stays the flat list these tests read.
+    if (e.model === 'haiku') return { value: { isAnswered: true, text: 'no groups', usage } } as any
     asked.push(e.prompt)
     return { value: { isAnswered: true, text: `About ${e.prompt}`, usage } } as any
   })
