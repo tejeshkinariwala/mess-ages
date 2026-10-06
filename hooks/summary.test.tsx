@@ -15,7 +15,7 @@ test('prompts at once, reply blocks at the next tool call or turn end, once each
   on('turn.start', (_$, e: any) => ({ turnId: e.turnId }) as any)
   on('turn.complete', () => ({ text: 'done' }) as any)
   on('tool.call', () => ({ result: { text: 'ok' } }) as any)
-  on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e as any) as any; return h(Text, {}, 'x') })
+  on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e as any) as any; return h(Text, {}, 'x') as any })
   const draw = async (component: 'UserMessage' | 'AssistantMessage', requestId: string, text: string) => {
     const props = component === 'UserMessage'
       ? { text, origin: { kind: 'prompt' }, isExpanded: true }
