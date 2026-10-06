@@ -1,16 +1,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Folds, Kind, Labels } from '../types'
-import { ageLabel, cleanSummary } from './age'
+import type { Folds, Kind, Label, Labels } from '../types'
+import { ageLabel } from './age'
 import {
-  EMPTY, GROUP_SYSTEM, applyPass, failPass, fits, isCollapsed, moveCursor, parseGroups, passPrompt, planPass,
-  sections, shouldPass,
+  EMPTY, applyPass, failPass, fits, isCollapsed, moveCursor, parseGroups, passPrompt, planPass,
+  groupSystem, sections, shouldPass,
 } from './groups'
 import { KIND_COLOR, parseLabel } from './kind'
+import { labelPrompt, promptSystem, replySystem } from './prompts'
 import { markSeen, pickBackfill, resetSeen, rows, seen } from './store'
-import { STYLE_RULES } from './style'
 import type { Row } from './store'
+import {
+  VERBS_FILE, emptyVerbFile, learn, parseSegments, parseVerbFile, serializeVerbFile, verbGroup, verbsCommand,
+  vocabulary,
+} from './verbs'
+import type { VerbFile } from './verbs'
 
 const now = atom({ plugin: 'mess-ages', key: 'now' } as const, 0)
 const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Labels)
@@ -24,26 +29,8 @@ const AUTO_FLAG = '.claude/.mess-ages-always'
 // The panel's age column: wide enough for the longest short age, `30m+`, plus a space.
 const AGE_WIDTH = 5
 
-// Labels are written in a short action style with no tense; see STYLE_RULES.
-const SYSTEM =
-  'You label chat messages a person sends to an AI coding assistant. ' +
-  'Reply with 2 to 8 words that say what the message asks for. ' + STYLE_RULES + ' ' +
-  'Examples: "remove cap & test", "check shared messages folder", "ask permission to run tests & push", ' +
-  '"plan: remove dots & ago", "ask: merge PR now?", "fix login bug | push". ' +
-  'No quotes, no full stop, nothing else.'
-
-// Replies also say what kind of work they are doing, in the same call.
-const REPLY_SYSTEM =
-  'You label what an AI coding assistant is doing in one chat message. Reply as "kind: words". ' +
-  'kind is one of: edit (changing or writing code or files), read (reading, searching, looking things up), ' +
-  'run (running commands, tests or builds), other (answering, explaining, planning, anything else). ' +
-  'words are 2 to 8 words that say what the message does. ' + STYLE_RULES + ' ' +
-  'A status prefix goes after the kind. ' +
-  'Examples: "edit: remove cap & test", "other: report fix pushed | ask user to test", ' +
-  '"read: other session edit shared code files", "other: wait: read-only agent report", ' +
-  '"edit: done: push panel fix", "other: plan: remove dots & ago", "other: ask: merge PR now?", ' +
-  '"run: fail: disk full, writes blocked". ' +
-  'No quotes, no full stop, nothing else.'
+// The label prompts live in prompts.ts and groups.ts; each names the
+// current verb vocabulary (verbs.ts).
 
 // Texts waiting for a summary, by message id; filled while drawing, drained by
 // the tick. A text is summarized only once it is final: a prompt at once, a
@@ -70,7 +57,56 @@ let cursor: string | undefined
 // `other` keeps the plain dim colour: no color prop at all.
 function colorOf(kind: Kind) {
   const color = KIND_COLOR[kind]
-  return color ? { color } : {}
+  return color ? { color } : { dimColor: true }
+}
+
+// The person's verb list (~/.claude/mess-ages/verbs.json): read once per
+// load, then kept in memory and written back after each label that used a
+// verb. Any failure reads as an empty list and is never thrown.
+let verbLoad: Promise<VerbFile> | undefined
+let verbFile: VerbFile | undefined
+
+async function verbsPath($: EngineInterface) {
+  const home = await $.env.get('HOME').catch(() => undefined)
+  return home ? `${home}/${VERBS_FILE}` : undefined
+}
+
+async function loadVerbs($: EngineInterface): Promise<VerbFile> {
+  if (verbFile) return verbFile
+  verbLoad ??= (async () => {
+    const path = await verbsPath($)
+    const text = path ? await $.fs.read(path).catch(() => undefined) : undefined
+    return parseVerbFile(typeof text === 'string' ? text : undefined)
+  })().catch(() => emptyVerbFile())
+  verbFile ??= await verbLoad
+  return verbFile
+}
+
+async function saveVerbs($: EngineInterface, file: VerbFile) {
+  verbFile = file
+  const path = await verbsPath($)
+  if (!path) return
+  await $.fs.write(path, serializeVerbFile(file))
+    .catch(err => $.ui.log(`mess-ages: verbs not saved: ${err}`, { to: 'debug' }))
+}
+
+// A label's text: a single segment (or old plain words) in its kind's colour
+// as before; several segments with each verb in its own group's colour (a
+// prompt's verbs all blue) and the details dim.
+function labelText(Text: any, label: Label, lead: string) {
+  const segments = parseSegments(label.words)
+  if (segments.length <= 1) return <Text {...colorOf(label.kind)}>{`${lead}${label.words}`}</Text>
+  const verbColor = (verb: string) => colorOf(label.kind === 'input' ? 'input' : verbGroup(verb))
+  return (
+    <Text>
+      {lead && <Text dimColor>{lead}</Text>}
+      {segments.flatMap((s, i) => [
+        ...(i ? [<Text dimColor>{' | '}</Text>] : []),
+        ...(s.verb ? [<Text {...verbColor(s.verb)}>{`${s.verb}: `}</Text>] : []),
+        <Text dimColor>{s.detail}</Text>,
+      ])}
+    </Text>
+  )
 }
 
 // Every reply text drawn so far is final: the model has moved on.
@@ -100,15 +136,20 @@ async function summarizeQueue($: EngineInterface) {
       if (asked.has(id)) continue
       asked.add(id)
       $.ui.log(`mess-ages: summarizing ${id}`, { to: 'debug' })
+      const vocab = vocabulary(await loadVerbs($))
       const r = await $.model.complete({
-        model: 'sonnet', effort: 'low', system: isPrompt ? SYSTEM : REPLY_SYSTEM,
-        prompt: text.slice(0, 4000), maxTokens: 40,
+        model: 'sonnet', effort: 'low', system: isPrompt ? promptSystem(vocab) : replySystem(vocab),
+        prompt: labelPrompt(text.slice(0, 4000)), maxTokens: 40,
       })
       if (!r.isAnswered) continue
-      const label = isPrompt ? { kind: 'input' as const, words: cleanSummary(r.text) } : parseLabel(r.text)
-      if (!label.words) continue
+      const { kind, words, segments } = parseLabel(r.text, isPrompt)
+      if (!words) continue
       // Kept for every message: the panel lists the whole session.
-      await update($, labels, m => ({ ...m, [id]: label }))
+      await update($, labels, m => ({ ...m, [id]: { kind, words } }))
+      // Each verb it used counts; a new one used twice joins the suggestions.
+      const file = await loadVerbs($)
+      const learned = learn(file, segments.map(s => s.verb))
+      if (learned !== file) await saveVerbs($, learned)
     }
   } finally {
     isBusy = false
@@ -141,7 +182,7 @@ async function groupPass($: EngineInterface, isOpening: boolean) {
     const t = await read($, now)
     const byId = new Map(rows(all, t).map(row => [row.id, row]))
     const r = await $.model.complete({
-      model: 'sonnet', effort: 'low', system: GROUP_SYSTEM, maxTokens: 600,
+      model: 'sonnet', effort: 'low', system: groupSystem(vocabulary(await loadVerbs($))), maxTokens: 600,
       prompt: passPrompt(plan.work.map(id => ({ age: byId.get(id)!.age, words: all[id]!.words }))),
     }).catch(() => undefined)
     const ranges = r?.isAnswered ? parseGroups(r.text, plan.work.length) : undefined
@@ -197,8 +238,17 @@ async function autoCommand($: EngineInterface, arg: string) {
     : 'Auto-open is off. /ages auto on turns it on.'
 }
 
+// `/ages verbs [remove <verb> | reset]`: lists, hides or clears the person's verbs.
+async function verbsCommand$($: EngineInterface, args: string[]) {
+  const { file, text, changed } = verbsCommand(await loadVerbs($), args, (await verbsPath($)) ?? `~/${VERBS_FILE}`)
+  if (changed) await saveVerbs($, file)
+  return text
+}
+
 export const register: Register = on => {
-  // A fresh load starts with nothing seen and nothing live.
+  // A fresh load starts with nothing seen and nothing live, and reads the verb list again.
+  verbLoad = undefined
+  verbFile = undefined
   resetSeen()
   for (const c of [pending, asked, oldIds, old, backfilled]) c.clear()
   isLive = false
@@ -211,7 +261,7 @@ export const register: Register = on => {
     // A failed registration costs the panel alone, never the labels.
     await $.command.register({
       name: 'ages',
-      description: 'Toggle a side panel listing every message\'s age and summary; /ages auto on|off opens it each session',
+      description: 'Toggle a side panel listing every message\'s age and summary; /ages auto on|off opens it each session; /ages verbs lists label verbs',
     }).catch(err => $.ui.log(`mess-ages: /ages not registered: ${err}`, { to: 'debug' }))
     // The one timer for every label, however many: every 5s it moves `now`, so
     // renders that read it redraw when a label can change, and it drains the
@@ -283,9 +333,7 @@ export const register: Register = on => {
         {drawn}
         <Box justifyContent="flex-end">
           <Text dimColor>{age}</Text>
-          {summary && (
-            <Text {...(KIND_COLOR[summary.kind] ? {} : { dimColor: true })} {...colorOf(summary.kind)}>{` · ${summary.words}`}</Text>
-          )}
+          {summary && labelText(Text, summary, ' · ')}
         </Box>
       </Box>
     )
@@ -293,8 +341,9 @@ export const register: Register = on => {
 
   // `/ages` toggles the panel: open it, or minimize it back to the chat.
   on('command.run', { command: 'ages' }, async ($, e) => {
-    const [sub, arg = ''] = (e.args ?? '').trim().split(/\s+/)
+    const [sub, arg = '', ...rest] = (e.args ?? '').trim().split(/\s+/)
     if (sub === 'auto') return { text: await autoCommand($, arg) }
+    if (sub === 'verbs') return { text: await verbsCommand$($, [arg, ...rest].filter(Boolean)) }
     if (await isPanelOpen($)) {
       await $.ui.close({ id: PANE })
       return { text: 'Ages panel minimized.' }
@@ -326,7 +375,7 @@ export const register: Register = on => {
           <Text dimColor>{row.age}</Text>
         </Box>
         <Box flexGrow={1} flexShrink={1}>
-          <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{row.label!.words}</Text>
+          {labelText(Text, row.label!, '')}
         </Box>
       </Box>
     )

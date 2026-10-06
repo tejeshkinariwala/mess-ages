@@ -1,5 +1,6 @@
 import type { Kind } from '../types'
-import { cleanSummary } from './age'
+import { formatSegments, normalizeLabel, verbGroup } from './verbs'
+import type { Segment } from './verbs'
 
 /** Theme colours per kind: they follow the person's light or dark theme. */
 export const KIND_COLOR: Record<Kind, string | undefined> = {
@@ -10,11 +11,14 @@ export const KIND_COLOR: Record<Kind, string | undefined> = {
   other: undefined, // plain dim: answers, plans, anything else
 }
 
-const REPLY_KINDS = ['edit', 'read', 'run', 'other'] as const
-
-/** Splits a reply's "kind: words" answer; an unknown or missing kind is `other`. A literal "kind:" prefix is skipped. */
-export function parseLabel(raw: string): { kind: Kind; words: string } {
-  const [, head = '', rest = ''] = /^\s*["']?(?:kind\s*:\s*)?([a-z]+)\s*[:\-]\s*(.*)$/is.exec(raw) ?? []
-  const kind = REPLY_KINDS.find(k => k === head.toLowerCase())
-  return kind ? { kind, words: cleanSummary(rest) } : { kind: 'other', words: cleanSummary(raw) }
+/**
+ * Reads a model's label: `verb: detail` segments joined by ` | `, old forms
+ * too (`edit: done: x`, plain words, `kind: run: x`). The first segment's
+ * verb picks the colour group (unknown or none: `other`); a prompt's label is
+ * always `input`. `words` is the cleaned label, verbs kept; `segments` its parts.
+ */
+export function parseLabel(raw: string, isPrompt = false): { kind: Kind; words: string; segments: Segment[] } {
+  const segments = normalizeLabel(raw)
+  const kind: Kind = isPrompt ? 'input' : verbGroup(segments[0]?.verb)
+  return { kind, words: formatSegments(segments), segments }
 }

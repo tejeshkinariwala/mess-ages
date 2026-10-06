@@ -1,7 +1,22 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { GROUP_SYSTEM } from './groups'
+import { GROUP_MARK } from './groups'
 
 const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+
+// The message a label call was sent, out of its <message> tags.
+const unwrap = (prompt: string) => /<message>\n([\s\S]*)\n<\/message>/.exec(prompt)?.[1] ?? prompt
+// A temp HOME with an in-memory file system: the real verbs.json is never touched.
+const fakeHome = (on: any) => {
+  const files = new Map<string, string>()
+  on('env.get', (_$: any, e: any) => ({ value: e.name === 'HOME' ? '/tmp/mess-ages-test-home' : undefined }) as any)
+  on('fs.read', (_$: any, e: any) => {
+    if (!files.has(e.path)) throw new Error('ENOENT')
+    return { value: files.get(e.path) } as any
+  })
+  on('fs.write', (_$: any, e: any) => { files.set(e.path, e.text); return { value: undefined } as any })
+  on('fs.exists', (_$: any, e: any) => ({ value: files.has(e.path) }) as any)
+  return files
+}
 
 // The world the plugin talks to. `group` answers each grouping pass from
 // the rows it was sent; every pass's prompt is kept.
@@ -9,12 +24,13 @@ function setup($: any, on: any, group: (n: number) => string) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const passes: string[] = []
   on('model.complete', (_$: any, e: any) => {
-    if (e.system === GROUP_SYSTEM) {
+    if (e.system.startsWith(GROUP_MARK)) {
       passes.push(e.prompt)
       return { value: { isAnswered: true, text: group(e.prompt.split('\n').length), usage } } as any
     }
-    return { value: { isAnswered: true, text: `About ${e.prompt}`, usage } } as any
+    return { value: { isAnswered: true, text: `About ${unwrap(e.prompt)}`, usage } } as any
   })
+  fakeHome(on)
   on('session.start', () => ({ cwd: '/tmp' }) as any)
   on('turn.start', (_$: any, e: any) => ({ turnId: e.turnId }) as any)
   on('ui.log', () => ({ value: undefined }) as any)

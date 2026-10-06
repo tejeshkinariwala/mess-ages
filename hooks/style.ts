@@ -17,12 +17,12 @@ export function ampersand(text: string): string {
 /** The style rules shared by all three prompts. */
 export const STYLE_RULES =
   'Style rules: ' +
-  '1. Start with the plain base form of the action verb (remove, check, ask, wait, report). ' +
+  '1. Every verb and action word is a plain base form (remove, check, ask, wait, report). ' +
   'Never an -ing word, and never "finished", "plan to", "is", "was", "will". ' +
   'Say only the action and what it acts on; leave out tense. ' +
   '2. Write "&" instead of "and". ' +
   '3. Write " | " between two separate steps instead of filler words like "then". ' +
   '4. Drop "the", "a", "an" and filler words. Keep it short and plain. ' +
-  '5. Optionally start with one status prefix when the state matters, else just the action: ' +
+  '5. Use a status verb when the state matters: ' +
   '"plan:" not started, proposed; "done:" finished or verified; "ask:" needs a user answer or decision; ' +
   '"wait:" blocked on an agent, build or user; "fail:" an error or failure blocks it.'

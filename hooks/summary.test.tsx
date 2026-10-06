@@ -2,13 +2,29 @@ import { test, expect, mock } from 'claude-code/testing'
 
 const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 
+// The message a label call was sent, out of its <message> tags.
+const unwrap = (prompt: string) => /<message>\n([\s\S]*)\n<\/message>/.exec(prompt)?.[1] ?? prompt
+// A temp HOME with an in-memory file system: the real verbs.json is never touched.
+const fakeHome = (on: any) => {
+  const files = new Map<string, string>()
+  on('env.get', (_$: any, e: any) => ({ value: e.name === 'HOME' ? '/tmp/mess-ages-test-home' : undefined }) as any)
+  on('fs.read', (_$: any, e: any) => {
+    if (!files.has(e.path)) throw new Error('ENOENT')
+    return { value: files.get(e.path) } as any
+  })
+  on('fs.write', (_$: any, e: any) => { files.set(e.path, e.text); return { value: undefined } as any })
+  on('fs.exists', (_$: any, e: any) => ({ value: files.has(e.path) }) as any)
+  return files
+}
+
 test('prompts at once, reply blocks at the next tool call or turn end, once each', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   const asked: string[] = []
+  fakeHome(on)
   on('model.complete', (_$, e: any) => {
-    asked.push(e.prompt)
-    const kind = e.system.includes('kind:') ? 'run: ' : '' // replies say their kind
-    return { value: { isAnswered: true, text: `${kind}About ${e.prompt}`, usage } } as any
+    asked.push(unwrap(e.prompt))
+    const kind = e.system.includes('assistant is doing') ? 'run: ' : '' // replies say their kind
+    return { value: { isAnswered: true, text: `${kind}About ${unwrap(e.prompt)}`, usage } } as any
   })
   on('session.start', () => ({ cwd: '/tmp' }) as any)
   on('ui.log', () => ({ value: undefined }) as any)
