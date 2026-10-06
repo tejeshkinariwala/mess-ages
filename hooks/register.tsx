@@ -11,6 +11,8 @@ const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Label
 
 // The side panel listing every message's age and summary, opened by /ages.
 const PANE = 'ages'
+// The panel's age column: wide enough for the longest age, `30m+ ago`.
+const AGE_WIDTH = 8
 
 const SYSTEM =
   'You label chat messages. Reply with 2 to 8 very simple everyday words that say what the message is about. ' +
@@ -47,11 +49,6 @@ const backfilled = new Set<string>()
 function colorOf(kind: Kind) {
   const color = KIND_COLOR[kind]
   return color ? { color } : {}
-}
-
-// Old and past the back-generation limit: no summary is coming.
-function isAgeOnly(id: string) {
-  return oldIds.has(id) && !backfilled.has(id)
 }
 
 // Every reply text drawn so far is final: the model has moved on.
@@ -196,21 +193,32 @@ export const register: Register = on => {
     return { text: 'Ages panel opened. Esc, m, or /ages again minimizes it.' }
   })
 
-  // One row per message, oldest first: `age · summary`, as under each message.
+  // One row per summarized message, oldest first: `age · summary`, as under
+  // each message. Rows with no summary (old ones past BACKFILL_LIMIT, or still
+  // waiting) are hidden and counted in one dim line: a resumed session draws its
+  // history at once, so they would all show the same age and nothing else.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const all = await read($, labels)
     const list = rows(all, await read($, now))
+    const shown = list.filter(row => row.label)
+    const hidden = list.length - shown.length
 
     return (
       <Box flexDirection="column">
         {list.length === 0 && <Text dimColor>No messages yet.</Text>}
-        {list.map(row => (
+        {hidden > 0 && (
+          <Text dimColor>{`${hidden} earlier message${hidden === 1 ? '' : 's'} (no summary)`}</Text>
+        )}
+        {shown.map(row => (
           <Box>
-            <Text dimColor>{row.age}</Text>
-            {row.label
-              ? <Text {...(KIND_COLOR[row.label.kind] ? {} : { dimColor: true })} {...colorOf(row.label.kind)}>{` · ${row.label.words}`}</Text>
-              : isAgeOnly(row.id) ? null : <Text dimColor>{' · …'}</Text>}
+            {/* Fixed width, never shrunk: a long summary wraps in its own column. */}
+            <Box width={AGE_WIDTH} flexShrink={0}>
+              <Text dimColor>{row.age}</Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1}>
+              <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{` · ${row.label!.words}`}</Text>
+            </Box>
           </Box>
         ))}
         <Box>

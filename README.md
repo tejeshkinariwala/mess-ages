@@ -27,7 +27,7 @@ The label sits on its own line below the message, so tables and other wide outpu
 
 ## The `/ages` panel
 
-Type `/ages` to open a side panel that lists every message in the session, oldest first, as `age · summary`. The arrow keys scroll it. To minimize it, press `Esc`, press `m` (the Minimize button), or type `/ages` again.
+Type `/ages` to open a side panel that lists the session's messages, oldest first, as `age · summary`. Messages with no summary (old ones past the limit below, or ones still waiting) are not listed one by one: a single dim line such as `8 earlier messages (no summary)` counts them. Long summaries wrap in their own column, beside the age. The arrow keys scroll it. To minimize it, press `Esc`, press `m` (the Minimize button), or type `/ages` again.
 
 ## Limits
 

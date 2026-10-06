@@ -39,8 +39,10 @@ function setup($: any, on: any) {
     const ages = await ui.findAll({ type: 'Text', text: /just now|ago/ })
     const summaries = (await ui.findAll({ type: 'Text', text: / · / })).map((t: any) => JSON.stringify(t))
     const minimize = await ui.find({ type: 'Button', key: 'minimize' })
+    const hidden = await ui.find({ type: 'Text', text: /no summary/ })
+    const boxes = (await ui.findAll({ type: 'Box' })).map((b: any) => JSON.stringify(b))
     await ui.unmount()
-    return { ages, summaries, minimize }
+    return { ages, summaries, minimize, hidden: hidden ? JSON.stringify(hidden) : undefined, boxes }
   }
   return { clock, asked, panes, draw, pane }
 }
@@ -75,9 +77,10 @@ test('every live message is labeled and summarized, past 20, on one timer', asyn
   await $.command.run({ command: 'ages' } as any)
   await clock.advance(10_000)
   expect(asked.length).toBe(30)
-  const { ages, summaries } = await pane('terminal')
+  const { ages, summaries, hidden } = await pane('terminal')
   expect(ages.length).toBe(30)
   expect(summaries.length).toBe(30)
+  expect(hidden).toBeUndefined() // nothing without a summary
 })
 
 test('/ages back-generates the newest 20 old messages, lists all, and toggles', async ($, on) => {
@@ -105,9 +108,10 @@ test('/ages back-generates the newest 20 old messages, lists all, and toggles', 
   expect(asked).not.toContain('message 4')
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const { ages, summaries, minimize } = await pane(surface)
-    expect(ages.length).toBe(25) // the whole session listed
-    expect(summaries.length).toBe(20) // the 5 oldest show the age only
+    const { ages, summaries, minimize, hidden } = await pane(surface)
+    expect(ages.length).toBe(20) // only rows with a summary
+    expect(summaries.length).toBe(20)
+    expect(hidden).toContain('5 earlier messages (no summary)') // the 5 oldest, counted
     expect(summaries[0]).toContain('about message 5') // oldest first
     expect(summaries[19]).toContain('about message 24')
     expect(minimize).toBeDefined()
@@ -135,4 +139,31 @@ test('/ages back-generates the newest 20 old messages, lists all, and toggles', 
   await clock.advance(10_000)
   expect(asked.length).toBe(21)
   expect((await draw('m25', 'message 25')).summary).toContain('about message 25')
+})
+
+test('after a clear or resume, unsummarized rows collapse to one line', async ($, on) => {
+  const { clock, asked, draw, pane } = setup($, on)
+
+  // The history is drawn all at once: every message has the same first-seen time.
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true } as any)
+  for (let i = 0; i < 28; i++) await draw(`m${i}`, `message ${i}`)
+
+  // Before any summary exists: no rows of bare ages, one count line instead.
+  const waiting = await pane('terminal')
+  expect(waiting.ages.length).toBe(0)
+  expect(waiting.hidden).toContain('28 earlier messages (no summary)')
+
+  await $.command.run({ command: 'ages' } as any)
+
+  await clock.advance(10_000)
+  expect(asked.length).toBe(20)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const { ages, summaries, hidden, boxes } = await pane(surface)
+    expect(ages.length).toBe(20)
+    expect(summaries.length).toBe(20)
+    expect(summaries[0]).toContain('about message 8')
+    expect(hidden).toContain('8 earlier messages (no summary)')
+    // The age sits in a fixed-width column that never shrinks.
+    expect(boxes.some((b: string) => b.includes('"width":8') && b.includes('"flexShrink":0'))).toBe(true)
+  }
 })
