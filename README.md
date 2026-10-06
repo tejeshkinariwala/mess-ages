@@ -7,7 +7,7 @@ A Claude Code plugin that puts a dim label under every message:
 ```
 
 - **Age:** how long ago the message appeared (`just now`, `5s ago`, `2m ago`, `30m+ ago`). Updates every 5 seconds, on one shared timer for all labels.
-- **Summary:** up to 8 plain words saying what the message does, written by Sonnet at low effort in a short action style (see [Label style](#label-style)). Each message is summarised once, when its text is final: your prompt at once, each of Claude's text blocks when its next tool call starts or the turn ends. The label does not change after it appears.
+- **Summary:** usually up to 8 plain words (at most 16 for two phases) saying what the message does, written by Sonnet at low effort in a short action style (see [Label style](#label-style)). Each message is summarised once, when its text is final: your prompt at once, each of Claude's text blocks when its next tool call starts or the turn ends. The label does not change after it appears.
 
 Thinking blocks get no label: Claude Code shows them like replies, but plugins cannot draw on them.
 
@@ -35,7 +35,7 @@ edit: remove cap & test | done: run tests
 
 - **verb:** one lowercase word (2 to 12 letters) followed by `: `. It names the kind of action or the state.
 - **detail:** the plain words after it; never empty.
-- **Length:** at most 8 words in all, verbs counted. One segment is the usual case; a second is only for a separate step or state.
+- **Length:** a soft limit of 8 words and a hard limit of 16, verbs counted (`SOFT_WORDS` and `HARD_WORDS` in `hooks/style.ts`). Aim for 8 or fewer; go up to 16 only for two phases joined by ` | ` when each phase needs its words; never over 16. One segment is the usual case; a second is only for a separate step or state. Group subtitles use the same limits.
 
 The three Sonnet prompts (`promptSystem` and `replySystem` in `hooks/prompts.ts`, `groupSystem` in `hooks/groups.ts`) name the current verb list (see [Verbs](#verbs)) and share the rules in `STYLE_RULES` in `hooks/style.ts`:
 
@@ -53,9 +53,11 @@ The three Sonnet prompts (`promptSystem` and `replySystem` in `hooks/prompts.ts`
    | `wait:` | blocked on an agent, build or you | `wait: agent report` |
    | `fail:` | an error or failure blocks it | `fail: disk full, writes blocked` |
 
-More examples: `remove: cap & test`, `report: fix pushed | ask: user to test`, `check: shared messages folder`; subtitles `Wait: build results & panel PR status`, `Delete: old git branches, keep main`.
+6. Aim for 8 words or fewer; go up to 16 only for two phases joined by `|`; never over 16.
 
-The code changes a label in two ways. In every summary and group subtitle, the word "and" becomes `&` (`ampersand` in `hooks/style.ts`); words that contain "and", paths and `code spans` are left alone. A label past 8 words is cut: the first segment is shortened to fit, and a later segment that does not fit whole is dropped, so no fragment or bare verb is left.
+More examples: `remove: cap & test`, `report: fix pushed | ask: user to test`, `check: shared messages folder`, `fix: login redirect loop after password reset | push: branch & open PR` (12 words, two phases); subtitles `Wait: build results & panel PR status`, `Delete: old git branches, keep main`.
+
+The code changes a label in two ways. In every summary and group subtitle, the word "and" becomes `&` (`ampersand` in `hooks/style.ts`); words that contain "and", paths and `code spans` are left alone. Then one helper, `fitSegments` in `hooks/verbs.ts`, applies the length limits to every summary and group subtitle. A verb prefix (`edit:`) counts as one word; `&`, `|` and `:` standing alone do not. Several segments within 16 words in all are kept whole. Past 16, trailing segments are dropped whole at ` | ` until the rest fits, so no phrase is cut and no bare verb is left. A single segment past 8 words (as written, or left after the drop, even one past 16 on its own) is cut to its first 8 words. Verb learning counts only the verbs left in the shortened label.
 
 Old labels still read. Plain words with no verb (`remove cap & test`) are a detail with no verb, drawn grey. The old reply form `edit: done: x` reads as verb `edit` with detail `done: x`, coloured green as before.
 
@@ -203,7 +205,7 @@ Separate several plugin folders with `:`. Start a new Claude Code session to loa
 
 ## Cost
 
-Each summarised message is one small Sonnet call (up to 4,000 characters in, 40 tokens out). To change the model, effort or prompt, edit the `$.model.complete` call in `hooks/register.tsx` or the prompts in `hooks/prompts.ts`.
+Each summarised message is one small Sonnet call (up to 4,000 characters in, up to 60 tokens out, room for a 16-word label). To change the model, effort or prompt, edit the `$.model.complete` call in `hooks/register.tsx` or the prompts in `hooks/prompts.ts`.
 
 Grouping is one Sonnet call per pass: at most `MAX_PASS_ROWS` short rows in, up to 600 tokens out, every `PASS_EVERY` rows while the panel is open.
 
@@ -217,7 +219,7 @@ Grouping is one Sonnet call per pass: at most `MAX_PASS_ROWS` short rows in, up 
 | `hooks/store.ts` | First-seen times, the panel rows, the back-generation limit (`BACKFILL_LIMIT`) |
 | `hooks/groups.ts` | Panel groups: the Sonnet prompt, JSON checks, freezing, pass timing and the row cap (`PASS_EVERY`, `MAX_PASS_ROWS`) |
 | `hooks/kind.ts` | Work kinds, their colours, reading a label and its colour group |
-| `hooks/verbs.ts` | The verb vocabulary: seed list, `verbs.json` reading and learning, the segment parser and 8-word cut, `/ages verbs` |
+| `hooks/verbs.ts` | The verb vocabulary: seed list, `verbs.json` reading and learning, the segment parser and the 8/16-word length fit, `/ages verbs` |
 | `hooks/prompts.ts` | The prompt and reply label prompts |
 | `hooks/*.test.ts(x)` | Tests |
 

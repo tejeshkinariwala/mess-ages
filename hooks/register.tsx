@@ -139,7 +139,7 @@ async function summarizeQueue($: EngineInterface) {
       const vocab = vocabulary(await loadVerbs($))
       const r = await $.model.complete({
         model: 'sonnet', effort: 'low', system: isPrompt ? promptSystem(vocab) : replySystem(vocab),
-        prompt: labelPrompt(text.slice(0, 4000)), maxTokens: 40,
+        prompt: labelPrompt(text.slice(0, 4000)), maxTokens: 60, // room for a 16-word label
       })
       if (!r.isAnswered) continue
       const { kind, words, segments } = parseLabel(r.text, isPrompt)

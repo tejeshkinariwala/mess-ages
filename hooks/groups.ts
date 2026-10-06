@@ -1,6 +1,6 @@
 import type { Group, Grouping } from '../types'
-import { STYLE_RULES, ampersand } from './style'
-import { vocabRules } from './verbs'
+import { HARD_WORDS, SOFT_WORDS, STYLE_RULES, ampersand } from './style'
+import { fitLabel, vocabRules } from './verbs'
 
 // The /ages panel's groups: labelled, contiguous chunks of its rows, written
 // by Sonnet. Closed groups are frozen: once made, their rows and subtitle never
@@ -17,19 +17,19 @@ export const MAX_PASS_ROWS = 30
 export const IN_PROGRESS = 'In progress'
 /** The subtitle of rows a pass grouped without Sonnet, being past MAX_PASS_ROWS. */
 export const EARLIER = 'Earlier messages'
-/** The longest subtitle kept, in characters. */
-const TITLE_MAX = 60
+/** The longest subtitle kept, in characters: a backstop after the word limits (fitLabel). */
+const TITLE_MAX = 160
 
 /** The grouping prompt, naming the current vocabulary for the subtitles. */
 export function groupSystem(vocab: readonly string[]): string {
   return 'You group the rows of a chat log into chunks of work. Each row is "index. [age] summary", oldest first. ' +
     'Split the rows into groups of consecutive rows that belong to one piece of work. ' +
-    'Give each group a subtitle of 2 to 8 words saying what the group of work does, capital first letter. ' +
+    `Give each group a subtitle of 2 to ${SOFT_WORDS} words (up to ${HARD_WORDS} for two phases) saying what the group of work does, capital first letter. ` +
     'Subtitle ' + vocabRules(vocab) + ' ' +
     STYLE_RULES + ' ' +
     'Subtitle examples: "Wait: build results & panel PR status", "Explain: plan | wait: agent report", ' +
     '"Delete: old git branches, keep main", "Add: side panel to project", "Done: push panel fix", ' +
-    '"Ask: merge PR now?", "Fail: disk full, writes blocked". ' +
+    '"Ask: merge PR now?", "Fail: disk full, writes blocked", "Fix: label cap in prompts & helper | test: boundary cases & push PR". ' +
     'Reply with JSON only, no prose: {"groups":[{"start":0,"end":3,"title":"..."}]}. ' +
     'start and end are row indexes, inclusive. The groups must be in order, cover every row once, and not overlap. ' +
     'Never change, drop or reorder rows.'
@@ -71,7 +71,8 @@ export function parseGroups(text: string, n: number): Range[] | undefined {
     const { start, end, title } = (g ?? {}) as Record<string, unknown>
     if (!Number.isInteger(start) || !Number.isInteger(end) || typeof title !== 'string') return undefined
     if (start !== next || (end as number) < (start as number) || (end as number) >= n) return undefined
-    const clean = ampersand(title).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+    // The same word limits as the summaries (fitLabel), then a character backstop.
+    const clean = fitLabel(ampersand(title).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, TITLE_MAX)
     if (!clean) return undefined
     ranges.push({ start: start as number, end: end as number, title: clean })
     next = (end as number) + 1

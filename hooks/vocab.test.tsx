@@ -19,8 +19,10 @@ function setup($: any, on: any, answer: () => string, initial?: string) {
   })
   on('fs.write', (_$: any, e: any) => { files.set(e.path, e.text); return { value: undefined } as any })
   on('fs.exists', (_$: any, e: any) => ({ value: files.has(e.path) }) as any)
+  const maxTokens: number[] = []
   on('model.complete', (_$: any, e: any) => {
     systems.push(e.system)
+    maxTokens.push(e.maxTokens)
     return { value: { isAnswered: true, text: answer(), usage } } as any
   })
   on('session.start', () => ({ cwd: '/tmp' }) as any)
@@ -50,7 +52,7 @@ function setup($: any, on: any, answer: () => string, initial?: string) {
     await $.turn.start({ text: 'go', turnId: 't1' } as any)
   }
   const verbs = async (args: string) => (await $.command.run({ command: 'ages', args: `verbs ${args}`.trim() } as any)).text
-  return { clock, files, systems, prompt, draw, start, verbs, reads: () => reads }
+  return { clock, files, systems, maxTokens, prompt, draw, start, verbs, reads: () => reads }
 }
 
 test('a new verb used twice is promoted, saved and suggested; the file is read once', async ($, on) => {
@@ -114,4 +116,16 @@ test('multi-segment labels colour each verb; single ones keep the old colouring'
   const single = await w.draw('AssistantMessage', 'a2')
   expect(single).toContain('"text":" · read: config file"')
   expect(single).toContain('merged') // read is purple, the whole label as before
+})
+
+test('learning and "&" run on the shortened label: a dropped segment\'s verb is not counted', async ($, on) => {
+  // 6 + 4 + 8 = 18 words: the third segment (zap) is dropped at its " | ".
+  const w = setup($, on, () => 'tidy: imports and dead code paths | done: lint the files | zap: one two three four five six seven')
+  await w.start()
+  await w.prompt('m1')
+  expect(JSON.parse(w.files.get(FILE)!)).toEqual({ learned: { tidy: 1, done: 1 }, promoted: [], removed: [] })
+  const label = await w.draw('UserMessage', 'm1')
+  expect(label).toContain('imports & dead code paths')
+  expect(label).not.toContain('zap')
+  expect(w.maxTokens).toEqual([60]) // room for a 16-word label
 })

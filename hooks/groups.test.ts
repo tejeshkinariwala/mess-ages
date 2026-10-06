@@ -26,7 +26,7 @@ test('parseGroups keeps contiguous, covering ranges and refuses anything else', 
   expect(parseGroups(reply([2, 1, 'a']), 3)).toBeUndefined() // backwards
   expect(parseGroups(reply([0, 2, '   ']), 3)).toBeUndefined() // no title
   expect(parseGroups('{"groups":[{"start":"0","end":2,"title":"a"}]}', 3)).toBeUndefined()
-  expect(parseGroups(reply([0, 0, 'x'.repeat(200)]), 1)?.[0]?.title.length).toBe(60)
+  expect(parseGroups(reply([0, 0, 'x'.repeat(200)]), 1)?.[0]?.title.length).toBe(160)
 })
 
 test('the first pass groups every row; the last group is open', () => {
