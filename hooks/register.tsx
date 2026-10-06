@@ -9,6 +9,7 @@ import {
 } from './groups'
 import { KIND_COLOR, parseLabel } from './kind'
 import { markSeen, pickBackfill, resetSeen, rows, seen } from './store'
+import { STYLE_RULES } from './style'
 import type { Row } from './store'
 
 const now = atom({ plugin: 'mess-ages', key: 'now' } as const, 0)
@@ -23,17 +24,26 @@ const AUTO_FLAG = '.claude/.mess-ages-always'
 // The panel's age column: wide enough for the longest short age, `30m+`, plus a space.
 const AGE_WIDTH = 5
 
+// Labels are written in a short action style with no tense; see STYLE_RULES.
 const SYSTEM =
-  'You label chat messages. Reply with 2 to 8 very simple everyday words that say what the message is about. ' +
-  'Use words a child knows. No punctuation, no quotes, nothing else.'
+  'You label chat messages a person sends to an AI coding assistant. ' +
+  'Reply with 2 to 8 words that say what the message asks for. ' + STYLE_RULES + ' ' +
+  'Examples: "remove cap & test", "check shared messages folder", "ask permission to run tests & push", ' +
+  '"plan: remove dots & ago", "ask: merge PR now?", "fix login bug | push". ' +
+  'No quotes, no full stop, nothing else.'
 
 // Replies also say what kind of work they are doing, in the same call.
 const REPLY_SYSTEM =
   'You label what an AI coding assistant is doing in one chat message. Reply as "kind: words". ' +
   'kind is one of: edit (changing or writing code or files), read (reading, searching, looking things up), ' +
   'run (running commands, tests or builds), other (answering, explaining, planning, anything else). ' +
-  'words are 2 to 8 very simple everyday words that say what the message is about. ' +
-  'Use words a child knows. No punctuation in the words, no quotes, nothing else.'
+  'words are 2 to 8 words that say what the message does. ' + STYLE_RULES + ' ' +
+  'A status prefix goes after the kind. ' +
+  'Examples: "edit: remove cap & test", "other: report fix pushed | ask user to test", ' +
+  '"read: other session edit shared code files", "other: wait: read-only agent report", ' +
+  '"edit: done: push panel fix", "other: plan: remove dots & ago", "other: ask: merge PR now?", ' +
+  '"run: fail: disk full, writes blocked". ' +
+  'No quotes, no full stop, nothing else.'
 
 // Texts waiting for a summary, by message id; filled while drawing, drained by
 // the tick. A text is summarized only once it is final: a prompt at once, a

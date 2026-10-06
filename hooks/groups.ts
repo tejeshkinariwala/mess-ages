@@ -1,4 +1,5 @@
 import type { Group, Grouping } from '../types'
+import { STYLE_RULES, ampersand } from './style'
 
 // The /ages panel's groups: labelled, contiguous chunks of its rows, written
 // by Sonnet. Closed groups are frozen: once made, their rows and subtitle never
@@ -19,9 +20,13 @@ export const EARLIER = 'Earlier messages'
 const TITLE_MAX = 60
 
 export const GROUP_SYSTEM =
-  'You group the rows of a chat log into chunks of work. Each row is "index. age | summary", oldest first. ' +
+  'You group the rows of a chat log into chunks of work. Each row is "index. [age] summary", oldest first. ' +
   'Split the rows into groups of consecutive rows that belong to one piece of work. ' +
-  'Give each group a subtitle of 2 to 8 plain words saying what was achieved or is being done. ' +
+  'Give each group a subtitle of 2 to 8 words saying what the group of work does, capital first letter. ' +
+  STYLE_RULES + ' ' +
+  'Subtitle examples: "Wait: build results & panel PR status", "Explain plan | wait for agent report", ' +
+  '"Delete old git branches | leave main", "Add side panel to project", "Done: push panel fix", ' +
+  '"Ask: merge PR now?", "Fail: disk full, writes blocked". ' +
   'Reply with JSON only, no prose: {"groups":[{"start":0,"end":3,"title":"..."}]}. ' +
   'start and end are row indexes, inclusive. The groups must be in order, cover every row once, and not overlap. ' +
   'Never change, drop or reorder rows.'
@@ -32,7 +37,7 @@ export type Range = { start: number; end: number; title: string }
 
 /** One row as sent to Sonnet: its index in the pass, short age and summary. */
 export function passPrompt(rows: { age: string; words: string }[]): string {
-  return rows.map((row, i) => `${i}. ${row.age} | ${row.words}`).join('\n')
+  return rows.map((row, i) => `${i}. [${row.age}] ${row.words}`).join('\n')
 }
 
 /**
@@ -59,7 +64,7 @@ export function parseGroups(text: string, n: number): Range[] | undefined {
     const { start, end, title } = (g ?? {}) as Record<string, unknown>
     if (!Number.isInteger(start) || !Number.isInteger(end) || typeof title !== 'string') return undefined
     if (start !== next || (end as number) < (start as number) || (end as number) >= n) return undefined
-    const clean = title.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+    const clean = ampersand(title).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
     if (!clean) return undefined
     ranges.push({ start: start as number, end: end as number, title: clean })
     next = (end as number) + 1
