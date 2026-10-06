@@ -56,21 +56,21 @@ A made-up session with `/ages` open. In a wide terminal the panel sits beside th
 ```
  > what does the old inputs class save?                 │ Ages
               5m ago · check what old inputs class saves│ 3 earlier messages (no summary)
-                                                        │ ▸ Read old inputs class (2)
+                                                        │ ▸ Check old inputs class (2)
  ● It saves the form fields and the last tab opened.    │ ▾ Move save code to Inputs (2)
                           5m ago · read old inputs class│ 2m   move save code to new class
                                                         │ 2m   done: move save code to
  > move that into the new class                         │      inputs
                     2m ago · move save code to new class│ ▾ In progress (2)
                                                         │ 30s  run save tests
- ● Done. I moved save() and load() into Inputs.         │ now  report all save tests pass
-                 2m ago · done: move save code to inputs│
-                                                        │ [ Minimize ] [ Collapse all ]
- ● Running the tests.                                   │ [ Expand all ]
-                                30s ago · run save tests│
+ ● Done. I moved save() and load() into Inputs.         │ now  ask: push save fix to
+                 2m ago · done: move save code to inputs│      main?
                                                         │
- ● All 12 tests pass.                                   │
-                   just now · report all save tests pass│
+ ● Running the tests.                                   │ [ Minimize ] [ Collapse all ]
+                                30s ago · run save tests│ [ Expand all ]
+                                                        │
+ ● All 12 tests pass. Push to main?                     │
+                  just now · ask: push save fix to main?│
 ────────────────────────────────────────────────────────┴──────────────────────────────────
  >
 ```
@@ -78,24 +78,24 @@ A made-up session with `/ages` open. In a wide terminal the panel sits beside th
 In a narrow terminal the panel sits above the prompt instead:
 
 ```
- ● All 12 tests pass.
-                   just now · report all save tests pass
+ ● All 12 tests pass. Push to main?
+                  just now · ask: push save fix to main?
 
  Ages
  3 earlier messages (no summary)
- ▸ Read old inputs class (2)
+ ▸ Check old inputs class (2)
  ▾ Move save code to Inputs (2)
  2m   move save code to new class
  2m   done: move save code to inputs
  ▾ In progress (2)
  30s  run save tests
- now  report all save tests pass
+ now  ask: push save fix to main?
  [ Minimize ] [ Collapse all ] [ Expand all ]
 ──────────────────────────────────────────────────
  >
 ```
 
-Here `Read old inputs class` is a closed group, collapsed; `Move save code to Inputs` is the open group, expanded; `In progress` holds the rows no grouping pass has seen yet.
+Here `Check old inputs class` is a closed group, collapsed; `Move save code to Inputs` is the open group, expanded; `In progress` holds the rows no grouping pass has seen yet.
 
 The colours (see above) are not shown here.
 
