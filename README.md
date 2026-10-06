@@ -11,6 +11,18 @@ A Claude Code plugin that puts a dim label under each of the last 20 messages:
 
 Thinking blocks get no label: Claude Code shows them like replies, but plugins cannot draw on them.
 
+- **Colour:** the summary is tinted by the kind of work, using your theme's colours so it reads in light and dark themes:
+
+  | Kind | Colour | Means |
+  |---|---|---|
+  | input | blue | your prompt |
+  | edit | green | Claude is changing code or files |
+  | read | purple | reading, searching, looking things up |
+  | run | amber | running commands, tests or builds |
+  | other | grey | answers, explanations, plans |
+
+  Your prompts are always `input`. For Claude's replies the same Sonnet call that writes the summary also picks the kind, so it costs nothing extra. Change the colours in `KIND_COLOR` in `hooks/kind.ts`.
+
 The label sits on its own line below the message, so tables and other wide output keep the full terminal width.
 
 ## Install
@@ -37,6 +49,7 @@ Each summarised message is one small Sonnet call (up to 4,000 characters in, 40 
 |---|---|
 | `hooks/register.tsx` | Draws the labels and queues the summary calls |
 | `hooks/age.ts` | Age buckets, the 20-message limit, summary cleanup |
+| `hooks/kind.ts` | Work kinds, their colours, reading the kind from the summary |
 | `hooks/*.test.ts(x)` | Tests |
 
 `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code generates locally for type checking. It is not in the repo.
