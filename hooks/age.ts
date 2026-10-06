@@ -23,17 +23,17 @@ export function ageLabel(ms: number): string {
 const isMark = (t: string | undefined) => t !== undefined && /^[&|:]+$/.test(t)
 
 /**
- * Keeps at most 8 plain lowercase words, after "and" becomes "&". The style
- * marks `&` and `|` are kept and not counted as words; `:` (as in a status
- * prefix, "plan: ..."), `?` and `,` are kept too.
+ * Keeps at most `max` (8) plain lowercase words, after "and" becomes "&". The
+ * style marks `&` and `|` are kept and not counted as words; `:` (as in a
+ * verb prefix, "plan: ..."), `?` and `,` are kept too.
  */
-export function cleanSummary(raw: string): string {
+export function cleanSummary(raw: string, max = 8): string {
   const tokens = ampersand(raw).toLowerCase().replace(/[^a-z0-9'&|:?, ]+/g, ' ').replace(/\s*([&|])\s*/g, ' $1 ')
     .trim().split(/\s+/)
   const kept: string[] = []
   let words = 0
   for (const t of tokens) {
-    if (!isMark(t) && ++words > 8) break
+    if (!isMark(t) && ++words > max) break
     kept.push(t)
   }
   while (isMark(kept.at(-1))) kept.pop()

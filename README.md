@@ -3,7 +3,7 @@
 A Claude Code plugin that puts a dim label under every message:
 
 ```
-10s ago · fix test to match new limit
+10s ago · fix: test to match new limit
 ```
 
 - **Age:** how long ago the message appeared (`just now`, `5s ago`, `2m ago`, `30m+ ago`). Updates every 5 seconds, on one shared timer for all labels.
@@ -11,7 +11,7 @@ A Claude Code plugin that puts a dim label under every message:
 
 Thinking blocks get no label: Claude Code shows them like replies, but plugins cannot draw on them.
 
-- **Colour:** the summary is tinted by the kind of work, using your theme's colours so it reads in light and dark themes:
+- **Colour:** the summary is tinted by the kind of work its first verb names (see [Verbs](#verbs)), using your theme's colours so it reads in light and dark themes:
 
   | Kind | Colour | Means |
   |---|---|---|
@@ -21,21 +21,31 @@ Thinking blocks get no label: Claude Code shows them like replies, but plugins c
   | run | amber | running commands, tests or builds |
   | other | grey | answers, explanations, plans |
 
-  Your prompts are always `input`. For Claude's replies the same Sonnet call that writes the summary also picks the kind, so it costs nothing extra. Change the colours in `KIND_COLOR` in `hooks/kind.ts`.
+  Your prompts are always `input`. For Claude's replies the first verb of the label picks the group: `edit: ...` is green, `test: ...` amber, `done: ...` grey. A label with several segments colours each verb by its own group and draws the details dim. Change the colours in `KIND_COLOR` in `hooks/kind.ts`, and which group a verb belongs to in `SEED_VERBS` in `hooks/verbs.ts`.
 
 The label sits on its own line below the message, so tables and other wide output keep the full terminal width.
 
 ## Label style
 
-Summaries and group subtitles use a short action style with no tense. The three Sonnet prompts (`SYSTEM` and `REPLY_SYSTEM` in `hooks/register.tsx`, `GROUP_SYSTEM` in `hooks/groups.ts`) share the rules in `STYLE_RULES` in `hooks/style.ts`:
+A label is one or more `verb: detail` segments joined by ` | `:
 
-1. Start with the base form of the action verb: `remove`, `check`, `ask`, not `removing`, `finished`, `plan to`, `is`, `was` or `will`.
+```
+edit: remove cap & test | done: run tests
+```
+
+- **verb:** one lowercase word (2 to 12 letters) followed by `: `. It names the kind of action or the state.
+- **detail:** the plain words after it; never empty.
+- **Length:** at most 8 words in all, verbs counted. One segment is the usual case; a second is only for a separate step or state.
+
+The three Sonnet prompts (`promptSystem` and `replySystem` in `hooks/prompts.ts`, `groupSystem` in `hooks/groups.ts`) name the current verb list (see [Verbs](#verbs)) and share the rules in `STYLE_RULES` in `hooks/style.ts`:
+
+1. Every verb and action word is a base form: `remove`, `check`, `ask`, not `removing`, `finished`, `plan to`, `is`, `was` or `will`.
 2. Write `&` instead of "and".
 3. Write `|` between two separate steps instead of filler words.
 4. Leave out articles and filler words.
-5. Optionally start with one status prefix, when the state matters:
+5. Use a status verb when the state matters:
 
-   | Prefix | Means | Example |
+   | Verb | Means | Example |
    |---|---|---|
    | `plan:` | not started, proposed | `plan: remove dots & ago` |
    | `done:` | finished or verified | `done: push panel fix` |
@@ -43,11 +53,44 @@ Summaries and group subtitles use a short action style with no tense. The three 
    | `wait:` | blocked on an agent, build or you | `wait: agent report` |
    | `fail:` | an error or failure blocks it | `fail: disk full, writes blocked` |
 
-More examples: `remove cap & test`, `report fix pushed | ask user to test`, `check shared messages folder`; subtitles `Wait: build results & panel PR status`, `Delete old git branches | leave main`.
+More examples: `remove: cap & test`, `report: fix pushed | ask: user to test`, `check: shared messages folder`; subtitles `Wait: build results & panel PR status`, `Delete: old git branches, keep main`.
 
-For Claude's replies the status prefix comes after the kind (`edit: done: remove cap & test`); the kind sets the colour and the rest is the summary.
+The code changes a label in two ways. In every summary and group subtitle, the word "and" becomes `&` (`ampersand` in `hooks/style.ts`); words that contain "and", paths and `code spans` are left alone. A label past 8 words is cut: the first segment is shortened to fit, and a later segment that does not fit whole is dropped, so no fragment or bare verb is left.
 
-The code changes one thing itself: in every summary and group subtitle, the word "and" becomes `&` (`ampersand` in `hooks/style.ts`). Words that contain "and", paths and `code spans` are left alone. Nothing else is rewritten. Summaries and groups made before this style keep their old wording.
+Old labels still read. Plain words with no verb (`remove cap & test`) are a detail with no verb, drawn grey. The old reply form `edit: done: x` reads as verb `edit` with detail `done: x`, coloured green as before.
+
+## Verbs
+
+The verbs suggested to Sonnet come from two lists.
+
+**Seed list** (`SEED_VERBS` in `hooks/verbs.ts`), each verb with its colour group:
+
+| Group | Verbs |
+|---|---|
+| input (blue) | `input` |
+| edit (green) | `edit`, `fix`, `add`, `remove`, `write`, `delete` |
+| read (purple) | `read`, `check`, `review`, `search` |
+| run (amber) | `run`, `test`, `push`, `merge`, `build` |
+| other (grey) | `other`, `plan`, `done`, `ask`, `wait`, `fail`, `explain`, `decide`, `report` |
+
+**Your list** is `~/.claude/mess-ages/verbs.json`, outside the repo. The plugin creates it the first time a label uses a verb:
+
+```json
+{ "learned": { "tidy": 1, "amend": 3, "edit": 12 }, "promoted": ["amend"], "removed": ["other"] }
+```
+
+- **learned:** how many labels used each verb. Seed verbs are counted too, for `/ages verbs`.
+- **Learning rule:** when a label uses a verb that is not a seed verb, its count goes up. At 2 uses it moves to `promoted`, and Sonnet is offered it from then on. Learned verbs are drawn grey (`other`).
+- **removed:** verbs never learned, counted or suggested again.
+- Only a single lowercase word of 2 to 12 letters counts as a verb; anything else is ignored.
+- Sonnet is offered at most 30 verbs: the seed list first, then promoted verbs by use count.
+- A missing, unreadable or corrupt file counts as empty; the plugin never fails on it. The plugin reads the file once per session (and again after a plugin reload), keeps it in memory, and writes it back after each label that used a verb.
+
+Commands (the answer appears as the command's message, as for `/ages auto`):
+
+- `/ages verbs`: the seed and promoted verbs with use counts, then pending verbs with their count out of 2 (`tidy 1/2`), and removed verbs.
+- `/ages verbs remove <verb>`: add the verb to `removed` and drop it from `learned` and `promoted`. A seed verb can be removed too: it is only hidden from the suggestions and no longer counted; labels that use it still parse and colour.
+- `/ages verbs reset`: empty `learned`, `promoted` and `removed`.
 
 ## What it looks like
 
@@ -63,14 +106,14 @@ A made-up session with `/ages` open. In a wide terminal the panel sits beside th
  > move that into the new class                         │      inputs
                     2m ago · move save code to new class│ ▾ In progress (2)
                                                         │ 30s  run save tests
- ● Done. I moved save() and load() into Inputs.         │ now  ask: push save fix to
-                 2m ago · done: move save code to inputs│      main?
+ ● Done. I moved save() and load() into Inputs.         │ now  done: run save tests |
+                 2m ago · done: move save code to inputs│      ask: push to main?
                                                         │
  ● Running the tests.                                   │ [ Minimize ] [ Collapse all ]
                                 30s ago · run save tests│ [ Expand all ]
                                                         │
  ● All 12 tests pass. Push to main?                     │
-                  just now · ask: push save fix to main?│
+    just now · done: run save tests | ask: push to main?│
 ────────────────────────────────────────────────────────┴──────────────────────────────────
  >
 ```
@@ -79,7 +122,7 @@ In a narrow terminal the panel sits above the prompt instead:
 
 ```
  ● All 12 tests pass. Push to main?
-                  just now · ask: push save fix to main?
+   just now · done: run save tests | ask: push to main?
 
  Ages
  3 earlier messages (no summary)
@@ -89,7 +132,7 @@ In a narrow terminal the panel sits above the prompt instead:
  2m   done: move save code to inputs
  ▾ In progress (2)
  30s  run save tests
- now  ask: push save fix to main?
+ now  done: run save tests | ask: push to main?
  [ Minimize ] [ Collapse all ] [ Expand all ]
 ──────────────────────────────────────────────────
  >
@@ -160,7 +203,7 @@ Separate several plugin folders with `:`. Start a new Claude Code session to loa
 
 ## Cost
 
-Each summarised message is one small Sonnet call (up to 4,000 characters in, 40 tokens out). To change the model, effort or prompt, edit the `$.model.complete` call in `hooks/register.tsx`.
+Each summarised message is one small Sonnet call (up to 4,000 characters in, 40 tokens out). To change the model, effort or prompt, edit the `$.model.complete` call in `hooks/register.tsx` or the prompts in `hooks/prompts.ts`.
 
 Grouping is one Sonnet call per pass: at most `MAX_PASS_ROWS` short rows in, up to 600 tokens out, every `PASS_EVERY` rows while the panel is open.
 
@@ -173,7 +216,9 @@ Grouping is one Sonnet call per pass: at most `MAX_PASS_ROWS` short rows in, up 
 | `hooks/style.ts` | The label style rules shared by the prompts, the `and` to `&` normalizer |
 | `hooks/store.ts` | First-seen times, the panel rows, the back-generation limit (`BACKFILL_LIMIT`) |
 | `hooks/groups.ts` | Panel groups: the Sonnet prompt, JSON checks, freezing, pass timing and the row cap (`PASS_EVERY`, `MAX_PASS_ROWS`) |
-| `hooks/kind.ts` | Work kinds, their colours, reading the kind from the summary |
+| `hooks/kind.ts` | Work kinds, their colours, reading a label and its colour group |
+| `hooks/verbs.ts` | The verb vocabulary: seed list, `verbs.json` reading and learning, the segment parser and 8-word cut, `/ages verbs` |
+| `hooks/prompts.ts` | The prompt and reply label prompts |
 | `hooks/*.test.ts(x)` | Tests |
 
 `tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code generates locally for type checking. It is not in the repo.
