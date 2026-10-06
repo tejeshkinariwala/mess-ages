@@ -1,4 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
+import { GROUP_SYSTEM } from './groups'
 
 const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 
@@ -7,6 +8,8 @@ function setup($: any, on: any) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const asked: string[] = []
   on('model.complete', (_$: any, e: any) => {
+    // Grouping passes get no JSON: the panel stays the flat list these tests read.
+    if (e.system === GROUP_SYSTEM) return { value: { isAnswered: true, text: 'no groups', usage } } as any
     asked.push(e.prompt)
     return { value: { isAnswered: true, text: `About ${e.prompt}`, usage } } as any
   })

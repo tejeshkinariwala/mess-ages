@@ -12,9 +12,9 @@ export const KIND_COLOR: Record<Kind, string | undefined> = {
 
 const REPLY_KINDS = ['edit', 'read', 'run', 'other'] as const
 
-/** Splits a reply's "kind: words" answer; an unknown or missing kind is `other`. */
+/** Splits a reply's "kind: words" answer; an unknown or missing kind is `other`. A literal "kind:" prefix is skipped. */
 export function parseLabel(raw: string): { kind: Kind; words: string } {
-  const [, head = '', rest = ''] = /^\s*["']?([a-z]+)\s*[:\-]\s*(.*)$/is.exec(raw) ?? []
+  const [, head = '', rest = ''] = /^\s*["']?(?:kind\s*:\s*)?([a-z]+)\s*[:\-]\s*(.*)$/is.exec(raw) ?? []
   const kind = REPLY_KINDS.find(k => k === head.toLowerCase())
   return kind ? { kind, words: cleanSummary(rest) } : { kind: 'other', words: cleanSummary(raw) }
 }
