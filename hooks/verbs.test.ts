@@ -1,9 +1,10 @@
 import { test, expect } from 'claude-code/testing'
 
-import { groupSystem } from './groups'
+import { groupSystem, parseGroups } from './groups'
+import { HARD_WORDS, SOFT_WORDS } from './style'
 import { labelPrompt, promptSystem, replySystem } from './prompts'
 import {
-  PROMOTE_AT, SEED_VERBS, VOCAB_CAP, cutSegments, emptyVerbFile, isVerb, learn, normalizeLabel, parseSegments,
+  PROMOTE_AT, SEED_VERBS, VOCAB_CAP, emptyVerbFile, fitLabel, fitSegments, labelWords, isVerb, learn, normalizeLabel, parseSegments,
   parseVerbFile, serializeVerbFile, verbGroup, verbsCommand, vocabulary,
 } from './verbs'
 
@@ -35,17 +36,72 @@ test('parser: garbage', () => {
   expect(normalizeLabel('Edit:fix THE bug.')).toEqual([{ verb: 'edit', detail: 'fix the bug' }])
 })
 
-test('the 8-word cut runs across segments, verbs counted, none left dangling', () => {
-  const segs = normalizeLabel('edit: remove cap & test | done: run all tests | push: branch now')
-  // edit remove cap test (4) done run all tests (8): push is dropped whole.
-  expect(segs).toEqual([{ verb: 'edit', detail: 'remove cap & test' }, { verb: 'done', detail: 'run all tests' }])
-  expect(cutSegments([{ verb: 'a', detail: 'one two three four five six' }, { verb: 'bb', detail: 'x' }]))
-    .toEqual([{ verb: 'a', detail: 'one two three four five six' }])
-  // A later segment that does not fit whole goes, rather than leave "ask: try".
-  expect(normalizeLabel('report: ages panel merged to main | ask: try /ages, delete branches?'))
-    .toEqual([{ verb: 'report', detail: 'ages panel merged to main' }])
-  expect(cutSegments([{ detail: 'one two three four five six seven eight nine ten' }]))
-    .toEqual([{ detail: 'one two three four five six seven eight' }])
+// n words: w1 w2 ... wn
+const words = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `w${from + i}`).join(' ')
+const seg = (verb: string | undefined, n: number, from = 1) => ({ ...(verb ? { verb } : {}), detail: words(n, from) })
+
+test('limits: soft 8, hard 16', () => {
+  expect(SOFT_WORDS).toBe(8)
+  expect(HARD_WORDS).toBe(16)
+})
+
+test('word count: a verb prefix is one word; &, | and : alone are not', () => {
+  expect(labelWords([{ verb: 'edit', detail: 'remove cap & test' }])).toBe(4)
+  expect(labelWords([{ verb: 'edit', detail: 'a & b' }, { detail: 'c : d' }])).toBe(5)
+  // A subtitle's capitalised verb is not parsed as a verb but still counts once.
+  expect(labelWords([{ detail: 'Wait: a b' }])).toBe(3)
+})
+
+test('one segment: 8 kept, 9 cut to 8, verb counted', () => {
+  expect(fitSegments([seg(undefined, 8)])).toEqual([seg(undefined, 8)])
+  expect(fitSegments([seg(undefined, 9)])).toEqual([seg(undefined, 8)])
+  expect(fitSegments([seg('edit', 7)])).toEqual([seg('edit', 7)]) // edit + 7 = 8
+  expect(fitSegments([seg('edit', 8)])).toEqual([seg('edit', 7)]) // edit + 8 = 9: cut to edit + 7
+  expect(fitSegments([{ verb: 'edit', detail: 'w1 w2 w3 w4 w5 w6 w7 & w8' }]))
+    .toEqual([{ verb: 'edit', detail: 'w1 w2 w3 w4 w5 w6 w7' }]) // no trailing &
+})
+
+test('two segments: 9 and 16 in all kept whole, 17 drops the second', () => {
+  const nine = [seg('edit', 5), seg('run', 2)] // 6 + 3
+  expect(fitSegments(nine)).toEqual(nine)
+  const sixteen = [seg('edit', 7), seg('run', 7)] // 8 + 8
+  expect(labelWords(sixteen)).toBe(16)
+  expect(fitSegments(sixteen)).toEqual(sixteen)
+  const firstLong = [seg('edit', 11), seg('run', 3)] // 12 + 4: the first segment alone past 8 is fine here
+  expect(fitSegments(firstLong)).toEqual(firstLong)
+  // 8 + 9 = 17: the second goes whole, never cut mid-phrase.
+  expect(fitSegments([seg('edit', 7), seg('run', 8)])).toEqual([seg('edit', 7)])
+  // 12 + 5 = 17: the second goes, and the first alone is then cut to 8.
+  expect(fitSegments([seg('edit', 11), seg('run', 4)])).toEqual([seg('edit', 7)])
+})
+
+test('trailing segments drop at | until the rest fits 16', () => {
+  const three = [seg('edit', 5), seg('run', 5), seg('push', 5)] // 6 + 6 + 6 = 18
+  expect(fitSegments(three)).toEqual(three.slice(0, 2))
+  expect(normalizeLabel('edit: remove cap & test | done: run all tests | push: branch now'))
+    .toEqual([{ verb: 'edit', detail: 'remove cap & test' }, { verb: 'done', detail: 'run all tests' }, { verb: 'push', detail: 'branch now' }])
+})
+
+test('first segment alone past 16 is cut to 8', () => {
+  expect(fitSegments([seg('edit', 20), seg('run', 2)])).toEqual([seg('edit', 7)])
+  expect(fitSegments([seg(undefined, 17)])).toEqual([seg(undefined, 8)])
+})
+
+test('model labels: "and" becomes & and the fit runs after it', () => {
+  expect(normalizeLabel('fix: login redirect loop after password reset | push: branch and open PR'))
+    .toEqual([{ verb: 'fix', detail: 'login redirect loop after password reset' }, { verb: 'push', detail: 'branch & open pr' }])
+  expect(normalizeLabel('report: ' + words(12))).toEqual([{ verb: 'report', detail: words(7) }])
+})
+
+test('group subtitles use the same limits', () => {
+  expect(fitLabel('Fix: label cap in prompts & helper | test: boundary cases & push PR'))
+    .toBe('Fix: label cap in prompts & helper | test: boundary cases & push PR')
+  expect(fitLabel(`Fix: ${words(10)}`)).toBe(`Fix: ${words(7)}`)
+  expect(fitLabel(`Fix: ${words(7)} | test: ${words(9)}`)).toBe(`Fix: ${words(7)}`)
+  const reply = (title: string) => JSON.stringify({ groups: [{ start: 0, end: 0, title }] })
+  expect(parseGroups(reply(`Build and ${words(3)} | test: ${words(4)}`), 1)?.[0]?.title)
+    .toBe(`Build & ${words(3)} | test: ${words(4)}`)
+  expect(parseGroups(reply(`Fix: ${words(20)}`), 1)?.[0]?.title).toBe(`Fix: ${words(7)}`)
 })
 
 test('learning: counts, promotes at 2, ignores invalid verbs', () => {
@@ -145,7 +201,9 @@ test('all three prompts carry the vocabulary and the format', () => {
     expect(system).toContain('" | "')
     expect(system).toContain('Use a new single lowercase verb only if none of these fits')
     expect(system).toContain('Write "&" instead of "and"') // the style rules stay
-    expect(system).toContain('At most 8 words')
+    expect(system).toContain('Aim for 8 words or fewer')
+    expect(system).toContain('Go up to 16 only for two phases')
+    expect(system).toContain('Never go over 16')
   }
-  expect(labelPrompt('hi')).toMatch(/^<message>\nhi\n<\/message>\n.*verb: detail/s)
+  expect(labelPrompt('hi')).toMatch(/^<message>\nhi\n<\/message>\n.*verb: detail.*8 words or fewer.*Never go over 16/s)
 })

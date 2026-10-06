@@ -1,5 +1,6 @@
 import type { Kind } from '../types'
 import { cleanSummary } from './age'
+import { HARD_WORDS, SOFT_WORDS } from './style'
 
 // The label vocabulary: the leading word of each `verb: detail` segment.
 // SEED_VERBS ship with the plugin; the person's own list lives outside the
@@ -98,10 +99,7 @@ export function vocabRules(vocab: readonly string[]): string {
     'verb is one lowercase word followed by ": "; detail is the plain words after it, never empty. ' +
     `Prefer these verbs: ${vocab.join(', ')}. ` +
     'Use a new single lowercase verb only if none of these fits. ' +
-    'One segment is best: at most 7 words after its verb. ' +
-    'Add a second segment only for a separate step or state, and then at most 3 words after each verb. ' +
-    'Never a third segment. At most 8 words in all, counting the verbs and every number: ' +
-    'drop detail rather than go over.'
+    'One segment is best. Add a second segment only for a separate step or state. Never a third segment.'
 }
 
 // --- Parsing --------------------------------------------------------------
@@ -137,36 +135,59 @@ export function formatSegments(segments: readonly Segment[]): string {
   return segments.map(s => (s.verb ? `${s.verb}: ${s.detail}` : s.detail)).join(' | ')
 }
 
-/**
- * Keeps at most `max` words across all segments, verbs counted, `&` and `:`
- * not. The first segment is cut to fit; a later one is kept whole or
- * dropped, so no fragment or bare verb is left.
- */
-export function cutSegments(segments: readonly Segment[], max = 8): Segment[] {
-  const out: Segment[] = []
-  let left = max
-  for (const s of segments) {
-    // A later segment that does not fit whole is dropped, never left as a fragment.
-    const size = (s.verb ? 1 : 0) + s.detail.split(/\s+/).filter(t => t && !isMark(t)).length
-    if (out.length && size > left) break
-    if (s.verb) left--
-    if (left <= 0) break
-    const kept: string[] = []
-    for (const t of s.detail.split(/\s+/)) {
-      if (!isMark(t)) {
-        if (left === 0) break
-        left--
-      }
-      kept.push(t)
+// Word counting, the same for summaries and group subtitles: a verb prefix
+// (`edit:`, or `Wait:` in a subtitle) counts as one word, like each word after
+// it; the marks `&`, `|` and `:` standing alone are not words.
+const tokensOf = (s: Segment) => s.detail.split(/\s+/).filter(Boolean)
+
+/** A segment's word count, its verb counted as one word. */
+export function segmentWords(s: Segment): number {
+  return (s.verb ? 1 : 0) + tokensOf(s).filter(t => !isMark(t)).length
+}
+
+/** A label's word count across all its segments. */
+export const labelWords = (segments: readonly Segment[]) => segments.reduce((n, s) => n + segmentWords(s), 0)
+
+/** The segment cut to its first `max` words (verb counted), no trailing mark; undefined if nothing is left. */
+function cutSegment(s: Segment, max: number): Segment | undefined {
+  let left = s.verb ? max - 1 : max
+  const kept: string[] = []
+  for (const t of tokensOf(s)) {
+    if (!isMark(t)) {
+      if (left <= 0) break
+      left--
     }
-    while (kept.length && isMark(kept.at(-1)!)) kept.pop()
-    if (kept.length) out.push({ ...(s.verb ? { verb: s.verb } : {}), detail: kept.join(' ') })
-    if (left === 0) break
+    kept.push(t)
+  }
+  while (kept.length && isMark(kept.at(-1)!)) kept.pop()
+  return kept.length ? { ...(s.verb ? { verb: s.verb } : {}), detail: kept.join(' ') } : undefined
+}
+
+/**
+ * The one length limit for summaries and group subtitles (SOFT_WORDS 8,
+ * HARD_WORDS 16, in style.ts):
+ * - several segments within HARD_WORDS in all are kept whole;
+ * - past HARD_WORDS, trailing segments are dropped whole at ` | ` until the
+ *   rest fits, so no phrase is cut and no bare verb is left;
+ * - a single segment past SOFT_WORDS, from the model or left after the drop
+ *   (even one past HARD_WORDS alone), is cut to its first SOFT_WORDS words.
+ */
+export function fitSegments(segments: readonly Segment[]): Segment[] {
+  const out = [...segments]
+  while (out.length > 1 && labelWords(out) > HARD_WORDS) out.pop()
+  if (out.length === 1 && segmentWords(out[0]!) > SOFT_WORDS) {
+    const cut = cutSegment(out[0]!, SOFT_WORDS)
+    return cut ? [cut] : []
   }
   return out
 }
 
-/** A model's raw label, cleaned: lowercase, "and" as "&", a literal `kind:` dropped, cut at 8 words. */
+/** A plain-text label (a group subtitle) fitted the same way as a summary. */
+export function fitLabel(text: string): string {
+  return formatSegments(fitSegments(parseSegments(text)))
+}
+
+/** A model's raw label, cleaned: lowercase, "and" as "&", a literal `kind:` dropped, fitted to the length limits. */
 export function normalizeLabel(raw: string): Segment[] {
   const text = raw
     .replace(/^\s*["']?\s*kind\s*:\s*(?=[a-z]+\s*:)/i, '')
@@ -174,7 +195,7 @@ export function normalizeLabel(raw: string): Segment[] {
     .replace(/^\s*["']?([a-z]{2,12})\s+-\s+/i, (all, v: string) => (isSeed(v.toLowerCase()) ? `${v}: ` : all))
   // cleanSummary's own cut is generous here; the segment cut is the real one.
   const clean = cleanSummary(text, 64).replace(/(^|\|\s*)([a-z]{2,12})\s*:(?=\S)/g, '$1$2: ')
-  return cutSegments(parseSegments(clean))
+  return fitSegments(parseSegments(clean))
 }
 
 // --- /ages verbs -------------------------------------------------------------
