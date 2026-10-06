@@ -133,7 +133,9 @@ export const register: Register = on => {
         {drawn}
         <Box justifyContent="flex-end">
           <Text dimColor>{age}</Text>
-          {summary && <Text dimColor {...colorOf(summary.kind)}>{` · ${summary.words}`}</Text>}
+          {summary && (
+            <Text {...(KIND_COLOR[summary.kind] ? {} : { dimColor: true })} {...colorOf(summary.kind)}>{` · ${summary.words}`}</Text>
+          )}
         </Box>
       </Box>
     )
