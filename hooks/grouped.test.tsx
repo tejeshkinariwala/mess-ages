@@ -1,14 +1,15 @@
 import { test, expect, mock } from 'claude-code/testing'
+import { GROUP_SYSTEM } from './groups'
 
 const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 
-// The world the plugin talks to. `group` answers each Haiku grouping pass from
+// The world the plugin talks to. `group` answers each grouping pass from
 // the rows it was sent; every pass's prompt is kept.
 function setup($: any, on: any, group: (n: number) => string) {
   const clock = mock.clock(on, { now: 1_000_000 })
   const passes: string[] = []
   on('model.complete', (_$: any, e: any) => {
-    if (e.model === 'haiku') {
+    if (e.system === GROUP_SYSTEM) {
       passes.push(e.prompt)
       return { value: { isAnswered: true, text: group(e.prompt.split('\n').length), usage } } as any
     }

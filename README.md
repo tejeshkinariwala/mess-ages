@@ -83,13 +83,13 @@ Type `/ages` to open a side panel that lists the session's messages, oldest firs
 
 The panel groups its rows into chunks of work, each under a header such as `▾ Moving save code to Inputs (2)`: the subtitle says what was done or is being done, and the number counts the rows. `▸` marks a collapsed group, `▾` an expanded one.
 
-Haiku writes the groups (one small call at low effort). It gets the rows in order, each as its index, short age and summary, and answers with JSON: groups as contiguous index ranges, each with a subtitle. It never rewrites or reorders rows: the plugin keeps only the ranges, and checks that they start at the first row, follow each other with no gap or overlap, and end at the last row.
+Sonnet writes the groups (one small call at low effort). It gets the rows in order, each as its index, short age and summary, and answers with JSON: groups as contiguous index ranges, each with a subtitle. It never rewrites or reorders rows: the plugin keeps only the ranges, and checks that they start at the first row, follow each other with no gap or overlap, and end at the last row.
 
 - **Closed groups never change.** Their rows and subtitle are frozen once made, and they start collapsed.
-- **The last group is open.** Each pass sends Haiku the open group and the rows after it, never the closed groups. The open group can take in the new rows, get a new subtitle, or split: its earlier part becomes a closed group and the newest rows start a new open group. It starts expanded.
+- **The last group is open.** Each pass sends Sonnet the open group and the rows after it, never the closed groups. The open group can take in the new rows, get a new subtitle, or split: its earlier part becomes a closed group and the newest rows start a new open group. It starts expanded.
 - **In progress.** Rows that no pass has seen yet sit in a last group with the subtitle `In progress`.
 
-A pass runs when `/ages` opens (if there are new rows) and then, while the panel is open, once `PASS_EVERY` (5) new summarized rows have appeared since the last pass; never once per message. A pass sends at most `MAX_PASS_ROWS` (30) rows. If there are more, an open group that would not fit closes as it stands, and the oldest of the new rows close in one `Earlier messages` group without a Haiku call. Both constants are in `hooks/groups.ts`. Rows with no summary are never grouped: they stay in the `N earlier messages (no summary)` line.
+A pass runs when `/ages` opens (if there are new rows) and then, while the panel is open, once `PASS_EVERY` (5) new summarized rows have appeared since the last pass; never once per message. A pass sends at most `MAX_PASS_ROWS` (30) rows. If there are more, an open group that would not fit closes as it stands, and the oldest of the new rows close in one `Earlier messages` group without a Sonnet call. Both constants are in `hooks/groups.ts`. Rows with no summary are never grouped: they stay in the `N earlier messages (no summary)` line.
 
 Keys, while the panel has the keyboard (after `/ages`, or a click on it):
 
@@ -103,7 +103,7 @@ Keys, while the panel has the keyboard (after `/ages`, or a click on it):
 
 A group you fold or unfold keeps that state across passes.
 
-**Fallback.** If the Haiku call fails, its reply is not valid JSON, or the ranges do not pass the checks above, the panel shows the flat list of rows with no groups, as before. The next pass (after `PASS_EVERY` more rows) tries again. The inline labels under messages never change.
+**Fallback.** If the Sonnet call fails, its reply is not valid JSON, or the ranges do not pass the checks above, the panel shows the flat list of rows with no groups, as before. The next pass (after `PASS_EVERY` more rows) tries again. The inline labels under messages never change.
 
 ### Open it automatically
 
@@ -138,7 +138,7 @@ Separate several plugin folders with `:`. Start a new Claude Code session to loa
 
 Each summarised message is one small Sonnet call (up to 4,000 characters in, 40 tokens out). To change the model, effort or prompt, edit the `$.model.complete` call in `hooks/register.tsx`.
 
-Grouping is one Haiku call per pass: at most `MAX_PASS_ROWS` short rows in, up to 600 tokens out, every `PASS_EVERY` rows while the panel is open.
+Grouping is one Sonnet call per pass: at most `MAX_PASS_ROWS` short rows in, up to 600 tokens out, every `PASS_EVERY` rows while the panel is open.
 
 ## Files
 
@@ -147,7 +147,7 @@ Grouping is one Haiku call per pass: at most `MAX_PASS_ROWS` short rows in, up t
 | `hooks/register.tsx` | Draws the labels and the `/ages` panel, queues the summary calls |
 | `hooks/age.ts` | Age buckets, summary cleanup |
 | `hooks/store.ts` | First-seen times, the panel rows, the back-generation limit (`BACKFILL_LIMIT`) |
-| `hooks/groups.ts` | Panel groups: the Haiku prompt, JSON checks, freezing, pass timing and the row cap (`PASS_EVERY`, `MAX_PASS_ROWS`) |
+| `hooks/groups.ts` | Panel groups: the Sonnet prompt, JSON checks, freezing, pass timing and the row cap (`PASS_EVERY`, `MAX_PASS_ROWS`) |
 | `hooks/kind.ts` | Work kinds, their colours, reading the kind from the summary |
 | `hooks/*.test.ts(x)` | Tests |
 

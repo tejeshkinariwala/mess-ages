@@ -92,7 +92,7 @@ test('a pass runs on open with any new row, else every PASS_EVERY rows', () => {
 })
 
 test('a pass sends at most MAX_PASS_ROWS rows', () => {
-  // First pass of a long session: the oldest close without Haiku.
+  // First pass of a long session: the oldest close without Sonnet.
   const plan = planPass(EMPTY, ids(MAX_PASS_ROWS + 12))
   expect(plan.work).toEqual(ids(MAX_PASS_ROWS, 12))
   expect(plan.frozen).toEqual([{ ids: ids(12), title: EARLIER }])

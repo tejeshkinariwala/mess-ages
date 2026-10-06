@@ -1,7 +1,7 @@
 import type { Group, Grouping } from '../types'
 
 // The /ages panel's groups: labelled, contiguous chunks of its rows, written
-// by Haiku. Closed groups are frozen: once made, their rows and subtitle never
+// by Sonnet. Closed groups are frozen: once made, their rows and subtitle never
 // change. Only the last group is open: each pass sends it and the rows after
 // it, and the answer may grow it, retitle it, or split it (all but the last
 // group of the answer close). Rows after every group sit in a provisional
@@ -9,11 +9,11 @@ import type { Group, Grouping } from '../types'
 
 /** A pass runs once this many summarized rows have appeared since the last one. */
 export const PASS_EVERY = 5
-/** The most rows one pass sends to Haiku; older ones are grouped without it. */
+/** The most rows one pass sends to Sonnet; older ones are grouped without it. */
 export const MAX_PASS_ROWS = 30
 /** The subtitle of the rows no pass has grouped yet. */
 export const IN_PROGRESS = 'In progress'
-/** The subtitle of rows a pass grouped without Haiku, being past MAX_PASS_ROWS. */
+/** The subtitle of rows a pass grouped without Sonnet, being past MAX_PASS_ROWS. */
 export const EARLIER = 'Earlier messages'
 /** The longest subtitle kept, in characters. */
 const TITLE_MAX = 60
@@ -30,13 +30,13 @@ export const EMPTY: Grouping = { closed: [], tried: 0, isFlat: false }
 
 export type Range = { start: number; end: number; title: string }
 
-/** One row as sent to Haiku: its index in the pass, short age and summary. */
+/** One row as sent to Sonnet: its index in the pass, short age and summary. */
 export function passPrompt(rows: { age: string; words: string }[]): string {
   return rows.map((row, i) => `${i}. ${row.age} | ${row.words}`).join('\n')
 }
 
 /**
- * Reads Haiku's reply as ranges over `n` rows: contiguous from 0 to n - 1,
+ * Reads Sonnet's reply as ranges over `n` rows: contiguous from 0 to n - 1,
  * each with a subtitle. Anything else (no JSON, a gap, an overlap, a row
  * missed, an empty title) is undefined.
  */
@@ -92,9 +92,9 @@ export function shouldPass(grouping: Grouping, shownCount: number, isOpening: bo
 }
 
 export type Plan = {
-  /** Closed groups made without Haiku, appended after the current closed ones. */
+  /** Closed groups made without Sonnet, appended after the current closed ones. */
   frozen: Group[]
-  /** The rows Haiku groups this pass, oldest first: at most `cap`. */
+  /** The rows Sonnet groups this pass, oldest first: at most `cap`. */
   work: string[]
 }
 
@@ -120,7 +120,7 @@ export function planPass(grouping: Grouping, shown: string[], cap = MAX_PASS_ROW
 }
 
 /**
- * The grouping after a pass Haiku answered with `ranges` over `plan.work`:
+ * The grouping after a pass Sonnet answered with `ranges` over `plan.work`:
  * the closed groups kept as they are, the plan's frozen ones and all but the
  * last range closed after them, the last range the open group.
  */

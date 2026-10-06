@@ -7,4 +7,6 @@ test('reply kind and words', () => {
   expect(parseLabel('RUN: run the tests')).toEqual({ kind: 'run', words: 'run the tests' })
   expect(parseLabel('explain the plan')).toEqual({ kind: 'other', words: 'explain the plan' })
   expect(parseLabel('note: something odd')).toEqual({ kind: 'other', words: 'note something odd' })
+  expect(parseLabel('kind: edit: fix the login bug')).toEqual({ kind: 'edit', words: 'fix the login bug' })
+  expect(parseLabel('Kind: something odd')).toEqual({ kind: 'other', words: 'kind something odd' })
 })

@@ -115,7 +115,7 @@ async function isPanelOpen($: EngineInterface) {
 }
 
 // Groups the panel's rows: when it opens (`isOpening`), and after PASS_EVERY
-// new summarized rows while it is open. One Haiku call sends the open group
+// new summarized rows while it is open. One Sonnet call sends the open group
 // and the rows after it, never the closed ones; any failure leaves the panel
 // flat until a later pass succeeds.
 async function groupPass($: EngineInterface, isOpening: boolean) {
@@ -131,7 +131,7 @@ async function groupPass($: EngineInterface, isOpening: boolean) {
     const t = await read($, now)
     const byId = new Map(rows(all, t).map(row => [row.id, row]))
     const r = await $.model.complete({
-      model: 'haiku', effort: 'low', system: GROUP_SYSTEM, maxTokens: 600,
+      model: 'sonnet', effort: 'low', system: GROUP_SYSTEM, maxTokens: 600,
       prompt: passPrompt(plan.work.map(id => ({ age: byId.get(id)!.age, words: all[id]!.words }))),
     }).catch(() => undefined)
     const ranges = r?.isAnswered ? parseGroups(r.text, plan.work.length) : undefined
