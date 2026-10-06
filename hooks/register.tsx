@@ -11,8 +11,8 @@ const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Label
 
 // The side panel listing every message's age and summary, opened by /ages.
 const PANE = 'ages'
-// The panel's age column: wide enough for the longest age, `30m+ ago`.
-const AGE_WIDTH = 8
+// The panel's age column: wide enough for the longest short age, `30m+`, plus a space.
+const AGE_WIDTH = 5
 
 const SYSTEM =
   'You label chat messages. Reply with 2 to 8 very simple everyday words that say what the message is about. ' +

@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { ageLabel, cleanSummary } from './age'
+import { ageLabel, cleanSummary, shortAge } from './age'
 import { BACKFILL_LIMIT, pickBackfill } from './store'
 
 test('buckets', () => {
@@ -28,4 +28,11 @@ test('back-generation picks the newest, up to the limit in total', () => {
 test('summary cleanup', () => {
   expect(cleanSummary('"Fix the Login Bug."\n')).toBe('fix the login bug')
   expect(cleanSummary('one two three four five six seven eight nine ten')).toBe('one two three four five six seven eight')
+})
+
+test('panel ages drop "ago"', () => {
+  const cases: [number, string][] = [
+    [0, 'now'], [5_000, '5s'], [45_000, '30s'], [9 * 60_000, '5m'], [30 * 60_000, '30m'], [31 * 60_000, '30m+'],
+  ]
+  for (const [ms, label] of cases) expect(shortAge(ms)).toBe(label)
 })

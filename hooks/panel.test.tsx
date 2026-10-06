@@ -36,7 +36,7 @@ function setup($: any, on: any) {
       plugin: 'mess-ages', surface, component: 'Pane', requestId: 'ages',
       props: { title: 'Ages', isFocused: true, bodyColumns: 60, placement: 'dock' },
     } as any)
-    const ages = await ui.findAll({ type: 'Text', text: /just now|ago/ })
+    const ages = (await ui.findAll({ type: 'Text', text: /^(now|\d+[sm]\+?)$/ })).map((t: any) => JSON.stringify(t))
     const summaries = (await ui.findAll({ type: 'Text', text: / · / })).map((t: any) => JSON.stringify(t))
     const minimize = await ui.find({ type: 'Button', key: 'minimize' })
     const hidden = await ui.find({ type: 'Text', text: /no summary/ })
@@ -163,7 +163,9 @@ test('after a clear or resume, unsummarized rows collapse to one line', async ($
     expect(summaries.length).toBe(20)
     expect(summaries[0]).toContain('about message 8')
     expect(hidden).toContain('8 earlier messages (no summary)')
+    // Panel ages are short, with no "ago".
+    expect(ages.some((a: string) => a.includes('ago'))).toBe(false)
     // The age sits in a fixed-width column that never shrinks.
-    expect(boxes.some((b: string) => b.includes('"width":8') && b.includes('"flexShrink":0'))).toBe(true)
+    expect(boxes.some((b: string) => b.includes('"width":5') && b.includes('"flexShrink":0'))).toBe(true)
   }
 })

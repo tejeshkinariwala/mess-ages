@@ -1,5 +1,5 @@
 import type { Label, Labels, SeenMap } from '../types'
-import { ageLabel } from './age'
+import { shortAge } from './age'
 
 // What the inline labels and the panel both read: first-seen times here, in
 // module memory (render hooks may not write $.state), and the labels in the
@@ -26,9 +26,9 @@ export function markSeen(id: string, t: number): number {
   return seen[id]
 }
 
-/** One row per message seen, oldest first: its age at `t` and its label if any. */
+/** One row per message seen, oldest first: its short age at `t` and its label if any. */
 export function rows(all: Labels, t: number): Row[] {
-  return Object.entries(seen).map(([id, at]) => ({ id, age: ageLabel(Math.max(t, at) - at), label: all[id] }))
+  return Object.entries(seen).map(([id, at]) => ({ id, age: shortAge(Math.max(t, at) - at), label: all[id] }))
 }
 
 /**

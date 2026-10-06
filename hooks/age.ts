@@ -4,11 +4,18 @@ const STEPS: [number, string][] = [
   [30, '30s'], [10, '10s'], [5, '5s'],
 ]
 
-export function ageLabel(ms: number): string {
+/** The panel's short age, without "ago": `now`, `5s` ... `30m`, `30m+`. */
+export function shortAge(ms: number): string {
   const s = ms / 1000
-  if (s > 30 * 60) return '30m+ ago'
-  for (const [limit, text] of STEPS) if (s >= limit) return `${text} ago`
-  return 'just now'
+  if (s > 30 * 60) return '30m+'
+  for (const [limit, text] of STEPS) if (s >= limit) return text
+  return 'now'
+}
+
+/** The inline label under a message: `just now`, `5s ago` ... `30m+ ago`. */
+export function ageLabel(ms: number): string {
+  const short = shortAge(ms)
+  return short === 'now' ? 'just now' : `${short} ago`
 }
 
 /** Keeps at most 8 plain lowercase words. */
