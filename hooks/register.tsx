@@ -1,12 +1,18 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Kind, Labels, SeenMap } from '../types'
-import { MAX_SHOWN, ageLabel, cleanSummary, newest } from './age'
+import type { Kind, Labels } from '../types'
+import { ageLabel, cleanSummary } from './age'
 import { KIND_COLOR, parseLabel } from './kind'
+import { markSeen, pickBackfill, resetSeen, rows, seen } from './store'
 
 const now = atom({ plugin: 'mess-ages', key: 'now' } as const, 0)
 const labels = atom({ plugin: 'mess-ages', key: 'labels' } as const, {} as Labels)
+
+// The side panel listing every message's age and summary, opened by /ages.
+const PANE = 'ages'
+// The panel's age column: wide enough for the longest short age, `30m+`, plus a space.
+const AGE_WIDTH = 5
 
 const SYSTEM =
   'You label chat messages. Reply with 2 to 8 very simple everyday words that say what the message is about. ' +
@@ -23,13 +29,21 @@ const REPLY_SYSTEM =
 // Texts waiting for a summary, by message id; filled while drawing, drained by
 // the tick. A text is summarized only once it is final: a prompt at once, a
 // reply's text block when the next tool call starts or the turn ends (it never
-// changes after that), and any reply drawn while no turn runs (a resumed
-// session, or a reload after the turn ended). Each message is asked about once: its summary is stored
-// by id, never by text, so a redraw can't trigger a second call.
+// changes after that), and any reply drawn between turns. Each message is
+// asked about once: its summary is stored by id, never by text, so a redraw
+// can't trigger a second call. Live messages have no limit.
 const pending = new Map<string, { text: string; isFinal: boolean; isPrompt: boolean }>()
 const asked = new Set<string>()
 let isTurnRunning = false
 let isBusy = false
+// Live once this load has seen a prompt or a turn. Messages first drawn before
+// that are old (a resumed session's history, or a reload's redraw): they get
+// the age label at once, and a summary only by back-generation when /ages
+// opens, for the newest BACKFILL_LIMIT of them without one.
+let isLive = false
+const oldIds = new Set<string>()
+const old = new Map<string, { text: string; isPrompt: boolean }>() // their texts
+const backfilled = new Set<string>()
 
 // `other` keeps the plain dim colour: no color prop at all.
 function colorOf(kind: Kind) {
@@ -40,6 +54,18 @@ function colorOf(kind: Kind) {
 // Every reply text drawn so far is final: the model has moved on.
 function finalizeReplies() {
   for (const p of pending.values()) p.isFinal = true
+}
+
+// Queues the newest old messages without a summary, BACKFILL_LIMIT in all for
+// this load; older ones keep the age label alone.
+async function backfill($: EngineInterface) {
+  const all = await read($, labels)
+  const candidates = Object.keys(seen).filter(id => old.has(id) && !all[id] && !asked.has(id))
+  for (const id of pickBackfill(candidates, backfilled)) {
+    backfilled.add(id)
+    pending.set(id, { ...old.get(id)!, isFinal: true })
+  }
+  if (pending.size) void summarizeQueue($)
 }
 
 async function summarizeQueue($: EngineInterface) {
@@ -59,12 +85,8 @@ async function summarizeQueue($: EngineInterface) {
       if (!r.isAnswered) continue
       const label = isPrompt ? { kind: 'input' as const, words: cleanSummary(r.text) } : parseLabel(r.text)
       if (!label.words) continue
-      await update($, labels, m => {
-        const all = { ...m, [id]: label }
-        const keys = Object.keys(all)
-        for (const old of keys.slice(0, Math.max(0, keys.length - MAX_SHOWN * 3))) delete all[old]
-        return all
-      })
+      // Kept for every message: the panel lists the whole session.
+      await update($, labels, m => ({ ...m, [id]: label }))
     }
   } finally {
     isBusy = false
@@ -72,13 +94,22 @@ async function summarizeQueue($: EngineInterface) {
 }
 
 export const register: Register = on => {
-  // First-seen times live in module memory: render hooks may not write $.state.
-  const seen: SeenMap = {}
+  // A fresh load starts with nothing seen and nothing live.
+  resetSeen()
+  for (const c of [pending, asked, oldIds, old, backfilled]) c.clear()
+  isLive = false
+  isTurnRunning = false
   on('session.start', async ($, e, next) => {
     const t = await $.clock.now()
     await update($, now, () => t)
-    // Every 5s: renders that read `now` redraw when a label can change, and
-    // queued texts get summarized outside of drawing.
+    // A failed registration costs the panel alone, never the labels.
+    await $.command.register({
+      name: 'ages',
+      description: 'Toggle a side panel listing every message\'s age and summary',
+    }).catch(err => $.ui.log(`mess-ages: /ages not registered: ${err}`, { to: 'debug' }))
+    // The one timer for every label, however many: every 5s it moves `now`, so
+    // renders that read it redraw when a label can change, and it drains the
+    // queued texts outside of drawing.
     $.clock.every(5000, async () => {
       const t = await $.clock.now()
       await update($, now, () => t)
@@ -87,7 +118,12 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('prompt.submit', ($, e, next) => {
+    isLive = true
+    return next(e)
+  })
   on('turn.start', ($, e, next) => {
+    isLive = true
     isTurnRunning = true
     return next(e)
   })
@@ -105,24 +141,27 @@ export const register: Register = on => {
     if (e.component === 'AssistantMessage' && !e.props.isFirstOfReply) return next(e)
 
     const id = e.requestId
-    if (seen[id] === undefined) {
-      seen[id] = await $.clock.now()
-      const drop = Object.entries(seen).sort((a, b) => b[1] - a[1]).slice(MAX_SHOWN * 2)
-      for (const [old] of drop) delete seen[old]
-    }
-    if (!newest(seen).has(id)) return next(e)
+    const isOld = oldIds.has(id) || (seen[id] === undefined && !isLive)
+    if (isOld) oldIds.add(id)
+    const first = markSeen(id, await $.clock.now())
+    const isPrompt = e.component === 'UserMessage'
 
     const summary = (await read($, labels))[id]
     if (summary === undefined && !asked.has(id) && e.props.text.trim()) {
-      // A prompt is final as sent, a reply drawn between turns too; a reply
-      // block of the running turn waits (latest text wins).
-      const isFinal = e.component === 'UserMessage' || !isTurnRunning || (pending.get(id)?.isFinal ?? false)
-      pending.set(id, { text: e.props.text, isFinal, isPrompt: e.component === 'UserMessage' })
+      if (isOld) {
+        // Kept for back-generation; asked about only if picked when /ages opens.
+        old.set(id, { text: e.props.text, isPrompt })
+      } else {
+        // A prompt is final as sent, a reply drawn between turns too; a reply
+        // block of the running turn waits (latest text wins).
+        const isFinal = isPrompt || !isTurnRunning || (pending.get(id)?.isFinal ?? false)
+        pending.set(id, { text: e.props.text, isFinal, isPrompt })
+      }
     }
 
     const drawn = await next(e)
-    const t = Math.max(await read($, now), seen[id])
-    const age = ageLabel(t - seen[id])
+    const t = Math.max(await read($, now), first)
+    const age = ageLabel(t - first)
     const { Box, Text } = $.ui.resolve(e)
 
     // Label on its own line below, so the message keeps the full width:
@@ -133,7 +172,57 @@ export const register: Register = on => {
         {drawn}
         <Box justifyContent="flex-end">
           <Text dimColor>{age}</Text>
-          {summary && <Text dimColor {...colorOf(summary.kind)}>{` · ${summary.words}`}</Text>}
+          {summary && (
+            <Text {...(KIND_COLOR[summary.kind] ? {} : { dimColor: true })} {...colorOf(summary.kind)}>{` · ${summary.words}`}</Text>
+          )}
+        </Box>
+      </Box>
+    )
+  })
+
+  // `/ages` toggles the panel: open it, or minimize it back to the chat.
+  on('command.run', { command: 'ages' }, async $ => {
+    if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
+      await $.ui.close({ id: PANE })
+      return { text: 'Ages panel minimized.' }
+    }
+    await backfill($)
+    // Focused so the arrows scroll it; Escape hands the keys back and closes it.
+    const opened = await $.ui.open({ id: PANE, title: 'Ages', focus: true, closeOnEscape: true })
+    if (opened.isPlaced) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {}) // newest in view
+    return { text: 'Ages panel opened. Esc, m, or /ages again minimizes it.' }
+  })
+
+  // One row per summarized message, oldest first: the short age, then the
+  // summary with no ` · ` separator (the inline labels keep it). Rows with no summary (old ones past BACKFILL_LIMIT, or still
+  // waiting) are hidden and counted in one dim line: a resumed session draws its
+  // history at once, so they would all show the same age and nothing else.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const all = await read($, labels)
+    const list = rows(all, await read($, now))
+    const shown = list.filter(row => row.label)
+    const hidden = list.length - shown.length
+
+    return (
+      <Box flexDirection="column">
+        {list.length === 0 && <Text dimColor>No messages yet.</Text>}
+        {hidden > 0 && (
+          <Text dimColor>{`${hidden} earlier message${hidden === 1 ? '' : 's'} (no summary)`}</Text>
+        )}
+        {shown.map(row => (
+          <Box>
+            {/* Fixed width, never shrunk: a long summary wraps in its own column. */}
+            <Box width={AGE_WIDTH} flexShrink={0}>
+              <Text dimColor>{row.age}</Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1}>
+              <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{row.label!.words}</Text>
+            </Box>
+          </Box>
+        ))}
+        <Box>
+          <Button key="minimize" label="Minimize" hotkey="m" onPress={() => $.ui.close({ id: PANE })} />
         </Box>
       </Box>
     )

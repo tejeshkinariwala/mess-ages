@@ -1,1 +1,1 @@
-{ "name": "mess-ages", "version": "0.1.0", "description": "Dim 'time ago · short summary' labels under the last 20 messages in Claude Code", "types": "./types/index.d.ts" }
+{ "name": "mess-ages", "version": "0.1.0", "description": "Dim 'time ago · short summary' labels under every message in Claude Code, and an /ages side panel", "types": "./types/index.d.ts" }
