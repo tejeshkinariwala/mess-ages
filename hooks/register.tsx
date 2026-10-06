@@ -193,8 +193,8 @@ export const register: Register = on => {
     return { text: 'Ages panel opened. Esc, m, or /ages again minimizes it.' }
   })
 
-  // One row per summarized message, oldest first: `age · summary`, as under
-  // each message. Rows with no summary (old ones past BACKFILL_LIMIT, or still
+  // One row per summarized message, oldest first: the short age, then the
+  // summary with no ` · ` separator (the inline labels keep it). Rows with no summary (old ones past BACKFILL_LIMIT, or still
   // waiting) are hidden and counted in one dim line: a resumed session draws its
   // history at once, so they would all show the same age and nothing else.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -217,7 +217,7 @@ export const register: Register = on => {
               <Text dimColor>{row.age}</Text>
             </Box>
             <Box flexGrow={1} flexShrink={1}>
-              <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{` · ${row.label!.words}`}</Text>
+              <Text {...(KIND_COLOR[row.label!.kind] ? {} : { dimColor: true })} {...colorOf(row.label!.kind)}>{row.label!.words}</Text>
             </Box>
           </Box>
         ))}

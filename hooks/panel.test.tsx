@@ -37,12 +37,13 @@ function setup($: any, on: any) {
       props: { title: 'Ages', isFocused: true, bodyColumns: 60, placement: 'dock' },
     } as any)
     const ages = (await ui.findAll({ type: 'Text', text: /^(now|\d+[sm]\+?)$/ })).map((t: any) => JSON.stringify(t))
-    const summaries = (await ui.findAll({ type: 'Text', text: / · / })).map((t: any) => JSON.stringify(t))
+    const summaries = (await ui.findAll({ type: 'Text', text: /about message/ })).map((t: any) => JSON.stringify(t))
+    const separators = await ui.findAll({ type: 'Text', text: /·/ })
     const minimize = await ui.find({ type: 'Button', key: 'minimize' })
     const hidden = await ui.find({ type: 'Text', text: /no summary/ })
     const boxes = (await ui.findAll({ type: 'Box' })).map((b: any) => JSON.stringify(b))
     await ui.unmount()
-    return { ages, summaries, minimize, hidden: hidden ? JSON.stringify(hidden) : undefined, boxes }
+    return { ages, summaries, separators, minimize, hidden: hidden ? JSON.stringify(hidden) : undefined, boxes }
   }
   return { clock, asked, panes, draw, pane }
 }
@@ -158,11 +159,13 @@ test('after a clear or resume, unsummarized rows collapse to one line', async ($
   await clock.advance(10_000)
   expect(asked.length).toBe(20)
   for (const surface of ['terminal', 'desktop'] as const) {
-    const { ages, summaries, hidden, boxes } = await pane(surface)
+    const { ages, summaries, separators, hidden, boxes } = await pane(surface)
     expect(ages.length).toBe(20)
     expect(summaries.length).toBe(20)
     expect(summaries[0]).toContain('about message 8')
     expect(hidden).toContain('8 earlier messages (no summary)')
+    // No " · " separator before panel summaries.
+    expect(separators.length).toBe(0)
     // Panel ages are short, with no "ago".
     expect(ages.some((a: string) => a.includes('ago'))).toBe(false)
     // The age sits in a fixed-width column that never shrinks.

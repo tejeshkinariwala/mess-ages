@@ -27,7 +27,7 @@ The label sits on its own line below the message, so tables and other wide outpu
 
 ## The `/ages` panel
 
-Type `/ages` to open a side panel that lists the session's messages, oldest first, as `age · summary`, with a short age and no "ago" (`now`, `30s`, `5m`, `30m+`). Messages with no summary (old ones past the limit below, or ones still waiting) are not listed one by one: a single dim line such as `8 earlier messages (no summary)` counts them. Long summaries wrap in their own column, indented under the summary text. The arrow keys scroll it. To minimize it, press `Esc`, press `m` (the Minimize button), or type `/ages` again.
+Type `/ages` to open a side panel that lists the session's messages, oldest first, each row a short age with no "ago" (`now`, `30s`, `5m`, `30m+`) in a fixed column, then the summary with no separator, such as `5m   checking what the old inputs class saves`. Messages with no summary (old ones past the limit below, or ones still waiting) are not listed one by one: a single dim line such as `8 earlier messages (no summary)` counts them. Long summaries wrap in their own column, indented under the summary text. The arrow keys scroll it. To minimize it, press `Esc`, press `m` (the Minimize button), or type `/ages` again.
 
 ## Limits
 
