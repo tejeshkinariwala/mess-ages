@@ -28,6 +28,9 @@ test('back-generation picks the newest, up to the limit in total', () => {
 test('summary cleanup', () => {
   expect(cleanSummary('"Fix the Login Bug."\n')).toBe('fix the login bug')
   expect(cleanSummary('one two three four five six seven eight nine ten')).toBe('one two three four five six seven eight')
+  // & and | are kept, spaced, and not counted as words; a dangling one is dropped.
+  expect(cleanSummary('a&b | c d e f g h i')).toBe('a & b | c d e f g h')
+  expect(cleanSummary('| fix bug &')).toBe('fix bug')
 })
 
 test('panel ages drop "ago"', () => {
