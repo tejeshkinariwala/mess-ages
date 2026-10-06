@@ -20,13 +20,6 @@ export function newest(seen: Record<string, number>): Set<string> {
   )
 }
 
-/** Short stable key for a message's text. */
-export function textKey(text: string): string {
-  let h = 5381
-  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0
-  return `${text.length}:${h >>> 0}`
-}
-
 /** Keeps at most 8 plain lowercase words. */
 export function cleanSummary(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').trim().split(/\s+/).slice(0, 8).join(' ')
